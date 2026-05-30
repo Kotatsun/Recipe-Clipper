@@ -6,8 +6,45 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9A1000032FCB000000000003 /* RecipeClipperShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 9A1000012FCB000000000001 /* RecipeClipperShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9A10000D2FCB00000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 74004CC92FC9D65100F5B9BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A1000052FCB000000000005;
+			remoteInfo = RecipeClipperShareExtension;
+		};
+		9A20000A2FCC00000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 74004CC92FC9D65100F5B9BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 74004CD02FC9D65100F5B9BF;
+			remoteInfo = RecipeClipping;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9A1000042FCB000000000004 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				9A1000032FCB000000000003 /* RecipeClipperShareExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		74004CD12FC9D65100F5B9BF /* RecipeClipping.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RecipeClipping.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A1000012FCB000000000001 /* RecipeClipperShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RecipeClipperShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A2000012FCC000000000001 /* RecipeClippingTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RecipeClippingTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +53,34 @@
 			path = RecipeClipping;
 			sourceTree = "<group>";
 		};
+		9A1000022FCB000000000002 /* RecipeClipperShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RecipeClipperShareExtension;
+			sourceTree = "<group>";
+		};
+		9A2000022FCC000000000002 /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		74004CCE2FC9D65100F5B9BF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A1000072FCB000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2000052FCC000000000005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +94,8 @@
 			isa = PBXGroup;
 			children = (
 				74004CD32FC9D65100F5B9BF /* RecipeClipping */,
+				9A1000022FCB000000000002 /* RecipeClipperShareExtension */,
+				9A2000022FCC000000000002 /* Tests */,
 				74004CD22FC9D65100F5B9BF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +104,8 @@
 			isa = PBXGroup;
 			children = (
 				74004CD12FC9D65100F5B9BF /* RecipeClipping.app */,
+				9A1000012FCB000000000001 /* RecipeClipperShareExtension.appex */,
+				9A2000012FCC000000000001 /* RecipeClippingTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +120,12 @@
 				74004CCD2FC9D65100F5B9BF /* Sources */,
 				74004CCE2FC9D65100F5B9BF /* Frameworks */,
 				74004CCF2FC9D65100F5B9BF /* Resources */,
+				9A1000042FCB000000000004 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				9A10000C2FCB00000000000C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				74004CD32FC9D65100F5B9BF /* RecipeClipping */,
@@ -69,6 +136,51 @@
 			productName = RecipeClipping;
 			productReference = 74004CD12FC9D65100F5B9BF /* RecipeClipping.app */;
 			productType = "com.apple.product-type.application";
+		};
+		9A1000052FCB000000000005 /* RecipeClipperShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A1000092FCB000000000009 /* Build configuration list for PBXNativeTarget "RecipeClipperShareExtension" */;
+			buildPhases = (
+				9A1000062FCB000000000006 /* Sources */,
+				9A1000072FCB000000000007 /* Frameworks */,
+				9A1000082FCB000000000008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9A1000022FCB000000000002 /* RecipeClipperShareExtension */,
+			);
+			name = RecipeClipperShareExtension;
+			packageProductDependencies = (
+			);
+			productName = RecipeClipperShareExtension;
+			productReference = 9A1000012FCB000000000001 /* RecipeClipperShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		9A2000002FCC000000000000 /* RecipeClippingTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A2000092FCC000000000009 /* Build configuration list for PBXNativeTarget "RecipeClippingTests" */;
+			buildPhases = (
+				9A2000042FCC000000000004 /* Sources */,
+				9A2000052FCC000000000005 /* Frameworks */,
+				9A2000062FCC000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9A20000B2FCC00000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9A2000022FCC000000000002 /* Tests */,
+			);
+			name = RecipeClippingTests;
+			packageProductDependencies = (
+			);
+			productName = RecipeClippingTests;
+			productReference = 9A2000012FCC000000000001 /* RecipeClippingTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -82,6 +194,13 @@
 				TargetAttributes = {
 					74004CD02FC9D65100F5B9BF = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					9A1000052FCB000000000005 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					9A2000002FCC000000000000 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 74004CD02FC9D65100F5B9BF;
 					};
 				};
 			};
@@ -100,12 +219,28 @@
 			projectRoot = "";
 			targets = (
 				74004CD02FC9D65100F5B9BF /* RecipeClipping */,
+				9A1000052FCB000000000005 /* RecipeClipperShareExtension */,
+				9A2000002FCC000000000000 /* RecipeClippingTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		74004CCF2FC9D65100F5B9BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A1000082FCB000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2000062FCC000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +257,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		9A1000062FCB000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2000042FCC000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9A10000C2FCB00000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A1000052FCB000000000005 /* RecipeClipperShareExtension */;
+			targetProxy = 9A10000D2FCB00000000000D /* PBXContainerItemProxy */;
+		};
+		9A20000B2FCC00000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 74004CD02FC9D65100F5B9BF /* RecipeClipping */;
+			targetProxy = 9A20000A2FCC00000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		74004CDA2FC9D65200F5B9BF /* Debug */ = {
@@ -177,7 +339,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -234,7 +396,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -251,8 +413,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/RecipeClipping-Info.plist";
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"com.tatsuki.RecipeClipper\";\n    CFBundleURLSchemes =     (\n        recipeclipper\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -263,7 +429,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mnss.RecipeClipping;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -282,8 +448,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/RecipeClipping-Info.plist";
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"com.tatsuki.RecipeClipper\";\n    CFBundleURLSchemes =     (\n        recipeclipper\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -294,7 +464,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mnss.RecipeClipping;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -303,6 +473,118 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9A10000A2FCB00000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/ShareExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipper.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9A10000B2FCB00000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/ShareExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipper.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9A2000072FCC000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipperTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RecipeClipping.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RecipeClipping";
+				TEST_TARGET_NAME = RecipeClipping;
+			};
+			name = Debug;
+		};
+		9A2000082FCC000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LY536ZYWVL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tatsuki.RecipeClipperTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RecipeClipping.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RecipeClipping";
+				TEST_TARGET_NAME = RecipeClipping;
 			};
 			name = Release;
 		};
@@ -323,6 +605,24 @@
 			buildConfigurations = (
 				74004CDD2FC9D65200F5B9BF /* Debug */,
 				74004CDE2FC9D65200F5B9BF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A1000092FCB000000000009 /* Build configuration list for PBXNativeTarget "RecipeClipperShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A10000A2FCB00000000000A /* Debug */,
+				9A10000B2FCB00000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A2000092FCC000000000009 /* Build configuration list for PBXNativeTarget "RecipeClippingTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A2000072FCC000000000007 /* Debug */,
+				9A2000082FCC000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

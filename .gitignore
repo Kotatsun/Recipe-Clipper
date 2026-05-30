@@ -1,0 +1,17 @@
+# Xcode and Swift build artifacts
+.swift-module-cache/
+.DS_Store
+
+# User data
+*.xcuserdata/
+xcuserdata/
+
+# Xcode project workspace data
+*.xcworkspace
+
+# Build products
+DerivedData/
+build/
+*.o
+*.LinkFileList
+*.xcuserstate
