@@ -119,7 +119,7 @@ final class PlainRecipeTextParser {
     private nonisolated static func insertLineBreaks(_ text: String) -> String {
         text
             .replacingOccurrences(
-                of: #"(?<!^)(?<!\n)(?=\s*[【《■#]?\s*(?:材料はこちら|材料はこれ|材料|具材|使うもの|ingredients)(?:[\s:：】》\]]|$))"#,
+                of: #"(?<!^)(?<!\n)(?=\s*[【《〈■#]?\s*(?:材料はこちら|材料はこれ|材料|具材|使うもの|レシピ\s*[\/／]|ingredients)(?:[\s:：】》〉\]]|$|[0-9０-９]))"#,
                 with: "\n",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -129,7 +129,7 @@ final class PlainRecipeTextParser {
                 options: [.regularExpression, .caseInsensitive]
             )
             .replacingOccurrences(
-                of: #"(?<!^)(?<!\n)(?=\s*(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
+                of: #"(?<!^)(?<!\n)(?=\s*(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
                 with: "\n",
                 options: .regularExpression
             )
@@ -151,7 +151,7 @@ final class PlainRecipeTextParser {
                 options: .regularExpression
             )
             .replacingOccurrences(
-                of: #"(?<=。|！|!|？|\?)\s+(?=(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
+                of: #"(?<=。|！|!|？|\?)\s+(?=(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
                 with: "\n",
                 options: .regularExpression
             )
@@ -368,7 +368,7 @@ final class PlainRecipeTextParser {
     private nonisolated static func normalizedHeadingLine(_ line: String) -> String {
         stripBullet(line)
             .replacingOccurrences(of: #"^[\p{So}\p{Sk}\p{P}\s]+"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"^[【《\[]|[】》\]]$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^[【《〈<\[]|[】》〉>\]]$"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"^[■#]+\s*"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
             .lowercased()
@@ -377,7 +377,7 @@ final class PlainRecipeTextParser {
     private nonisolated static func headingRemainder(in line: String, headings: [String]) -> String? {
         let stripped = stripBullet(line)
             .replacingOccurrences(of: #"^[\p{So}\p{Sk}\p{P}\s]+"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"^[【《\[]|[】》\]]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^[【《〈<\[]|[】》〉>\]]"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"^[■#]+\s*"#, with: "", options: .regularExpression)
         for heading in headings.sorted(by: { $0.count > $1.count }) {
             let pattern = #"(?i)^\Q"# + NSRegularExpression.escapedPattern(for: heading) + #"\E(?:[】》\]\s:：👇]*|[（\(][^）\)]*[）\)]\s*)*"#
@@ -413,7 +413,7 @@ final class PlainRecipeTextParser {
 
     private nonisolated static func hasQuantityExpression(_ line: String) -> Bool {
         line.range(
-            of: #"([0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|切れ|かけ|片|粒|合)|(?:大さじ|小さじ|大|小)\s*[0-9０-９]+(?:[./／][0-9０-９]+)?|少々|適量|ひとつまみ|ひとかけ)"#,
+            of: #"([0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合)|(?:大さじ|小さじ|大|小)\s*[0-9０-９]+(?:[./／][0-9０-９]+)?|少々|適量|好きな量|ひとつまみ|ひとかけ)"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
@@ -432,7 +432,7 @@ final class PlainRecipeTextParser {
 
     private nonisolated static func looksLikeQuantityOnly(_ line: String) -> Bool {
         stripIngredientMarker(line).range(
-            of: #"^(約)?[0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|切れ|かけ|片|粒|合)$|^(少々|適量|ひとつまみ|ひとかけ)$"#,
+            of: #"^(約)?[0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合)$|^(少々|適量|好きな量|ひとつまみ|ひとかけ)$"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
@@ -546,7 +546,7 @@ final class PlainRecipeTextParser {
     }
 
     private nonisolated static let ingredientHeadings = [
-        "材料・作り方", "材料/作り方", "材料と作り方", "材料はこちら", "材料", "具材", "使うもの", "用意するもの", "ingredients", "ingredient"
+        "材料・作り方", "材料/作り方", "材料と作り方", "材料はこちら", "材料", "具材", "使うもの", "用意するもの", "レシピ", "ingredients", "ingredient"
     ]
 
     private nonisolated static let instructionHeadings = [

@@ -48,6 +48,15 @@ final class RecipeTextExtractorTests: XCTestCase {
             expectedFailureMode: "手順は（1）肉だねを作る / （2）成形する / （3）焼くを本文と結合する"
         ),
         ImportFixtureExpectation(
+            sourceURL: "https://park.ajinomoto.co.jp/recipe/card/703281/",
+            fixtureFileName: "ajinomoto_chicken_ratatouille.html",
+            importerType: "web",
+            expectedTitle: "チキンラタトゥイユ",
+            expectedIngredientsCount: 15,
+            expectedInstructionsCount: 4,
+            expectedFailureMode: "AJINOMOTO PARKのJSON-LD recipeIngredient / recipeInstructionsを優先し、手順内のbrタグを混ぜない"
+        ),
+        ImportFixtureExpectation(
             sourceURL: "https://www.instagram.com/reel/DYhGkdGIN8b/",
             fixtureFileName: "instagram_dyh_caption_unavailable.html",
             importerType: "instagram",
@@ -254,6 +263,22 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertTrue(instructionsText.contains("焼く"), debug(draft))
         XCTAssertFalse(instructionsText.contains("バックナンバー"))
         XCTAssertFalse(instructionsText.contains("著者"))
+    }
+
+    func testImporterExtractorDraftIntegrationForAjinomotoJSONLD() throws {
+        let draft = try makeDraftFromFixture("ajinomoto_chicken_ratatouille", ext: "html")
+        let ingredientsText = draft.ingredientLines.joined(separator: "\n")
+        let instructionsText = draft.instructionLines.joined(separator: "\n")
+
+        XCTAssertEqual(draft.sourceURL.absoluteString, "https://park.ajinomoto.co.jp/recipe/card/703281")
+        XCTAssertEqual(draft.importDiagnostics?.extractionSource, "jsonLD")
+        XCTAssertEqual(draft.title, "チキンラタトゥイユ")
+        XCTAssertEqual(draft.ingredientLines.count, 15, debug(draft))
+        XCTAssertTrue(ingredientsText.contains("鶏むね肉 1枚（250g）"), debug(draft))
+        XCTAssertTrue(ingredientsText.contains("B「味の素KKコンソメ」固形タイプ 1個"), debug(draft))
+        XCTAssertEqual(draft.instructionLines.count, 4, debug(draft))
+        XCTAssertTrue(instructionsText.contains("ホールトマト、Ｂを加えて混ぜ"), debug(draft))
+        XCTAssertFalse(instructionsText.contains("<br"), debug(draft))
     }
 
     func testMiaModenaFennelPastaAMP() throws {
@@ -494,6 +519,94 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertTrue(draft.ingredientLines.contains { $0.contains("牛乳") && $0.contains("100ml") }, debug(draft))
         XCTAssertFalse(draft.ingredientLines.contains { $0.contains("水を加えて") }, debug(draft))
         XCTAssertTrue(draft.instructionLines.contains { $0.contains("水を加えて") && $0.contains("パスタ") }, debug(draft))
+    }
+
+    func testInstagramMetaDescriptionStripsEngagementPrefixBeforeParsingCaption() throws {
+        let caption = """
+        @kei______817 ◀︎他の10分レシピはこちら
+        【鰹と豆苗のレモンドレッシング】
+
+        〈レシピ/2人分〉
+        鰹…1柵
+        豆苗…1パック
+        ☆醤油…大さじ1
+        ☆オリーブオイル…大さじ1
+        ☆粒マスタード…小さじ1
+        ☆レモン汁…大さじ1
+        レモン…1かけ
+        ピンクペッパー…適量
+
+        ①.豆苗は食べやすい長さにカットする。
+        ②.小皿に☆を入れて混ぜ、ドレッシングを作る。
+        ③.ボウルに豆苗と鰹を入れて②を回しかけてよく混ぜる。
+        ④.皿に盛り付けてレモンとピンクペッパーをトッピングして完成。
+        """
+        let html = """
+        <html>
+          <head>
+            <meta name="description" content="659 likes, 12 comments - kei______817 on May 30, 2026: &quot;\(caption)&quot;. ">
+          </head>
+        </html>
+        """
+        let inputURL = URL(string: "https://www.instagram.com/reel/DY9kRqnphct/")!
+        let initialFetched = importer.parseFetchedContent(html: html, inputURL: inputURL, importerType: "instagram")
+        let extractedCaption = try XCTUnwrap(RecipeImporter.extractInstagramCaption(html: html, metadata: initialFetched.metadata))
+        let draft = try makeDraft(
+            html: html,
+            inputURL: inputURL,
+            importerType: "instagram",
+            rawImportedTextOverride: extractedCaption,
+            textSource: "instagramCaption"
+        )
+
+        XCTAssertFalse(draft.rawImportedText.contains("659 likes"), debug(draft))
+        XCTAssertFalse(draft.ingredientLines.contains { $0.contains("likes") || $0.contains("comments") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("鰹") && $0.contains("1柵") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("ピンクペッパー") && $0.contains("適量") }, debug(draft))
+        XCTAssertEqual(draft.instructionLines.count, 4, debug(draft))
+        XCTAssertTrue(draft.instructionLines.contains { $0.contains("トッピング") && $0.contains("完成") }, debug(draft))
+    }
+
+    func testPlainParserKeepsFinalMultilineInstagramStep() throws {
+        let text = """
+        ダイエット中なのに
+        【えびクリームリゾット】
+
+        🛒材料
+        ＜A＞
+        ・ごはん 130g
+        ・えのき 80g (1/2パック)
+        ・玉ねぎ 40g
+        ・ツナ 1パック（60g）
+        ・ほうれん草 好きな量（今回は冷凍を使用）
+        ・冷凍むきえび 4個
+        ・コンソメ 小さじ2
+        ・にんにくチューブ 2cm
+        ・豆乳 100ml
+
+        ・とろけるチーズ 好きな量
+        ・乾燥パセリ
+        ・粗挽きコショウ
+        ・えごま油、オリーブオイルなど 適量
+
+        👩‍🍳作り方
+        ①耐熱容器に＜A＞を入れる
+        ②ふんわりラップをして
+        500Wで4分レンチン
+        ③よく混ぜてから、チーズを入れて
+        さらに3分ほどレンチン
+        ④お好みでオイルと
+        乾燥パセリ・コショウをかける
+
+        📌 保存して
+        ガッツリ食べたい日に作ってね
+        """
+        let result = plainParser.parse(text, mode: .caption)
+        let instructionsText = result.instructions.joined(separator: "\n")
+
+        XCTAssertEqual(result.instructions.count, 4, debug(result))
+        XCTAssertTrue(instructionsText.contains("乾燥パセリ・コショウをかける"), debug(result))
+        XCTAssertFalse(instructionsText.contains("保存して"), debug(result))
     }
 
     func testPlainParserInstagramCaptionKeepsNumberedIngredientsInIngredientSection() throws {

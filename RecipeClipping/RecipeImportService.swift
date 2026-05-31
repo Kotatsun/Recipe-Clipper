@@ -709,7 +709,9 @@ final class RecipeImporter {
         guard var text = raw?.htmlDecoded.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             return nil
         }
-        if let quoted = firstCapture(pattern: #"(?s):\s*"(.+)"\s*$"#, in: text) {
+        if let quoted = firstCapture(pattern: #"(?s)^\s*[\d,.]+\s+likes?,\s*[\d,.]+\s+comments?\s+-\s+.*?:\s*"(.+?)"\s*\.?\s*$"#, in: text) {
+            text = quoted
+        } else if let quoted = firstCapture(pattern: #"(?s):\s*"(.+)"\s*\.?\s*$"#, in: text) {
             text = quoted
         }
         text = text
@@ -830,7 +832,7 @@ final class RecipeImporter {
 
         for script in scripts {
             let cleaned = script
-                .htmlDecoded
+                .htmlEntityDecodedPreservingTags
                 .replacingOccurrences(of: "\u{FEFF}", with: "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let data = cleaned.data(using: .utf8),
@@ -932,7 +934,14 @@ final class RecipeImporter {
         var seen: Set<String> = []
         return lines
             .flatMap { $0.components(separatedBy: .newlines) }
-            .map { $0.htmlDecoded.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map {
+                $0
+                    .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+                    .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+                    .htmlDecoded
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             .filter { !$0.isEmpty }
             .filter { line in
                 guard !seen.contains(line) else { return false }
@@ -1332,6 +1341,23 @@ private extension NSItemProvider {
 }
 
 private extension String {
+    nonisolated var htmlEntityDecodedPreservingTags: String {
+        var result = self
+        let named = [
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&#39;": "'",
+            "&apos;": "'"
+        ]
+        for (source, destination) in named {
+            result = result.replacingOccurrences(of: source, with: destination)
+        }
+        return result
+    }
+
     nonisolated var htmlDecoded: String {
         guard let data = data(using: .utf8),
               let attributed = try? NSAttributedString(
