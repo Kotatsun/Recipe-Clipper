@@ -119,12 +119,12 @@ final class PlainRecipeTextParser {
     private nonisolated static func insertLineBreaks(_ text: String) -> String {
         text
             .replacingOccurrences(
-                of: #"(?<!^)(?<!\n)(?=\s*[【《■#]?\s*(?:材料|具材|使うもの|ingredients)\b?)"#,
+                of: #"(?<!^)(?<!\n)(?=\s*[【《■#]?\s*(?:材料はこちら|材料はこれ|材料|具材|使うもの|ingredients)(?:[\s:：】》\]]|$))"#,
                 with: "\n",
                 options: [.regularExpression, .caseInsensitive]
             )
             .replacingOccurrences(
-                of: #"(?<!^)(?<!\n)(?=\s*[【《■#]?\s*(?:作り方|作りかた|つくり方|手順|レシピ|instructions|how to)\b?)"#,
+                of: #"(?<!^)(?<!\n)(?<!材料・)(?<!材料/)(?<!材料／)(?<!材料と)(?=\s*[【《■#]?\s*(?:作り方|作りかた|つくり方|手順|レシピ|instructions|how to)(?:[\s:：】》\]]|$))"#,
                 with: "\n",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -145,6 +145,11 @@ final class PlainRecipeTextParser {
 
     private nonisolated static func splitDenseLine(_ line: String) -> [String] {
         line
+            .replacingOccurrences(
+                of: #"(?<=\S)\s+(?=[・\-*●○◯]\s*)"#,
+                with: "\n",
+                options: .regularExpression
+            )
             .replacingOccurrences(
                 of: #"(?<=。|！|!|？|\?)\s+(?=(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
                 with: "\n",
@@ -177,11 +182,20 @@ final class PlainRecipeTextParser {
     private nonisolated static func ingredients(fromSection section: [String]) -> [String] {
         var result: [String] = []
         var pendingName: String?
+        var reachedInstructionBlock = false
 
         var index = 0
         while index < section.count {
             let line = section[index]
             let cleaned = stripIngredientMarker(line)
+            let stepBody = stripStepMarker(cleaned)
+            if startsWithStepMarker(cleaned), containsInstructionVerb(stepBody) {
+                reachedInstructionBlock = true
+            }
+            if reachedInstructionBlock {
+                index += 1
+                continue
+            }
             let isInstructionOnly = looksLikeInstruction(cleaned)
                 && !hasQuantityExpression(cleaned)
                 && !looksLikeIngredientNameOnly(cleaned)
@@ -239,9 +253,11 @@ final class PlainRecipeTextParser {
             let hadStepMarker = startsWithStepMarker(bulletStripped)
             let hadBullet = bulletStripped != line.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleaned = bulletStripped
+            let markedStepBody = pendingNumber ? cleaned : stripStepMarker(cleaned)
+            let markedStepLooksInstruction = (pendingNumber || hadStepMarker) && containsInstructionVerb(markedStepBody)
             guard cleaned.count >= 2,
                   cleaned.count <= 260,
-                  !looksLikeIngredient(cleaned) else {
+                  (markedStepLooksInstruction || !looksLikeIngredient(cleaned)) else {
                 continue
             }
 
@@ -259,6 +275,8 @@ final class PlainRecipeTextParser {
     private nonisolated static func scoredIngredients(from lines: [String]) -> [String] {
         lines.compactMap { line in
             let cleaned = stripIngredientMarker(line)
+            let markedStepLooksInstruction = startsWithStepMarker(cleaned)
+                && containsInstructionVerb(stripStepMarker(cleaned))
             let isInstructionOnly = looksLikeInstruction(cleaned)
                 && !hasQuantityExpression(cleaned)
                 && !looksLikeIngredientNameOnly(cleaned)
@@ -267,6 +285,7 @@ final class PlainRecipeTextParser {
                   !isIngredientGroupMarker(cleaned),
                   !matchesHeading(cleaned, headings: ingredientHeadings + instructionHeadings),
                   looksLikeIngredient(cleaned),
+                  !markedStepLooksInstruction,
                   !isInstructionOnly else {
                 return nil
             }
@@ -290,7 +309,10 @@ final class PlainRecipeTextParser {
             }
             if pendingNumber || startsWithStepMarker(stripped) || looksLikeInstruction(stripped) {
                 let cleaned = stripped
-                if cleaned.count >= 2, !looksLikeIngredient(cleaned) {
+                let markedStep = pendingNumber || startsWithStepMarker(stripped)
+                let markedStepBody = pendingNumber ? cleaned : stripStepMarker(cleaned)
+                let markedStepLooksInstruction = markedStep && containsInstructionVerb(markedStepBody)
+                if cleaned.count >= 2, markedStepLooksInstruction || !looksLikeIngredient(cleaned) {
                     result.append(cleaned)
                     pendingNumber = false
                 }
@@ -308,6 +330,7 @@ final class PlainRecipeTextParser {
                     && !matchesHeading(stripped, headings: ingredientHeadings + instructionHeadings)
                     && !isNoiseLine(stripped)
                     && !looksLikeIngredient(stripped)
+                    && !startsWithStepMarker(stripped)
             }
             .flatMap(RecipeTextExtractor.cleanedTitle)
     }
@@ -418,7 +441,12 @@ final class PlainRecipeTextParser {
         if startsWithStepMarker(stripBullet(line)) { return true }
         let stripped = stripBullet(line)
         guard stripped.count >= 7, stripped.count <= 240, !hasQuantityExpression(stripped) else { return false }
-        let verbs = ["切る", "焼く", "炒め", "煮", "混ぜ", "加え", "入れ", "置く", "取り出", "茹で", "ゆで", "温め", "冷ま", "冷や", "盛り", "かけ", "和え", "揚げ", "蒸し", "流す", "整え", "溶かす", "作る", "泡立て", "重ね", "ふる", "こし", "仕上げ", "つけ", "加熱", "のせ", "からめ", "完成"]
+        return containsInstructionVerb(stripped)
+    }
+
+    private nonisolated static func containsInstructionVerb(_ line: String) -> Bool {
+        let stripped = stripBullet(line)
+        let verbs = ["切る", "切り", "焼く", "炒め", "煮", "混ぜ", "加え", "入れ", "置く", "取り出", "茹で", "ゆで", "温め", "冷ま", "冷や", "盛り", "かけ", "和え", "揚げ", "蒸し", "流す", "整え", "溶かす", "作る", "する", "泡立て", "重ね", "ふる", "こし", "仕上げ", "つけ", "加熱", "のせ", "からめ", "完成"]
         return verbs.contains { stripped.contains($0) }
     }
 

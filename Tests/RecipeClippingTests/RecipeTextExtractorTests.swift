@@ -16,6 +16,14 @@ final class RecipeTextExtractorTests: XCTestCase {
         var expectedFailureMode: String
     }
 
+    private struct LiveImportSmokeExpectation {
+        var sourceURL: String
+        var importerType: String
+        var minimumIngredientsCount: Int
+        var minimumInstructionsCount: Int
+        var expectedFailureMode: String
+    }
+
     // URL / fixture correspondence table for the currently failing import targets.
     // The static Instagram and YouTube unavailable fixtures intentionally model the
     // "caption/description unavailable in HTML" case. Available caption/description
@@ -65,6 +73,37 @@ final class RecipeTextExtractorTests: XCTestCase {
             expectedIngredientsCount: 0,
             expectedInstructionsCount: 0,
             expectedFailureMode: "static fixture has no description; real URL smoke must extract videoId and attempt oEmbed/Data API description retrieval"
+        )
+    ]
+
+    private static let instagramLiveSmokeExpectations: [LiveImportSmokeExpectation] = [
+        LiveImportSmokeExpectation(
+            sourceURL: "https://www.instagram.com/reel/DXrQLJkE4i2/",
+            importerType: "instagram",
+            minimumIngredientsCount: 2,
+            minimumInstructionsCount: 1,
+            expectedFailureMode: "実URLでは材料と手順が混在していても、caption取得後に材料・手順へ分離する"
+        ),
+        LiveImportSmokeExpectation(
+            sourceURL: "https://www.instagram.com/reel/DYKMfMlRE3o/",
+            importerType: "instagram",
+            minimumIngredientsCount: 4,
+            minimumInstructionsCount: 3,
+            expectedFailureMode: "実URLではInstagram embed内の二重エスケープcaptionから材料を抽出する"
+        ),
+        LiveImportSmokeExpectation(
+            sourceURL: "https://www.instagram.com/reel/DYhGkdGIN8b/",
+            importerType: "instagram",
+            minimumIngredientsCount: 4,
+            minimumInstructionsCount: 3,
+            expectedFailureMode: "実URLではInstagram embed内の二重エスケープcaptionから材料を抽出する"
+        ),
+        LiveImportSmokeExpectation(
+            sourceURL: "https://www.instagram.com/reel/DYuCMkMxSZO/",
+            importerType: "instagram",
+            minimumIngredientsCount: 4,
+            minimumInstructionsCount: 3,
+            expectedFailureMode: "実URLではInstagram embed内の二重エスケープcaptionから材料を抽出する"
         )
     ]
 
@@ -388,6 +427,75 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertFalse(result.instructions.contains { $0.contains("みそ 大1") }, debug(result))
     }
 
+    func testPlainParserCombinedIngredientInstructionHeadingKeepsQuantityStepsOutOfIngredients() throws {
+        let text = """
+        鶏のレモン焼き
+
+        【材料・作り方】
+        ・鶏もも肉 300g
+        ・塩 小さじ1/2
+        ・レモン 1/2個
+        ① 鶏肉に塩小さじ1/2を揉み込み、10分置く
+        ② フライパンで焼いて、レモンをしぼる
+        """
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("鶏もも肉") && $0.contains("300g") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("塩") && $0.contains("小さじ1/2") }, debug(result))
+        XCTAssertFalse(result.ingredients.contains { $0.contains("揉み込み") || $0.contains("フライパン") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 2, debug(result))
+        XCTAssertTrue(result.instructions.contains { $0.contains("塩小さじ1/2") && $0.contains("揉み込み") }, debug(result))
+    }
+
+    func testInstagramEscapedServerJSCaptionFeedsImporterExtractorDraftIntegration() throws {
+        let caption = """
+        ほうれん草とベーコンの濃厚クリームパスタ
+
+        ■材料
+        ・パスタ…100g
+        ・水…300ml
+        ・ほうれん草…1/2束
+        ・ベーコン…50g
+        ・牛乳…100ml
+        ・コンソメ…小さじ1
+
+        ■作り方
+        ① ほうれん草はざく切りにして、オリーブオイル大さじ1と一緒にペースト状にする。
+        ② フライパンにベーコンを入れてこんがり焼き、玉ねぎとにんにくを加えて炒める。
+        ③ 水を加えて沸騰したら、パスタをそのまま入れる。
+        ④ 牛乳・コンソメを加えて軽く煮詰める。
+        """
+        let embeddedCaption = try Self.jsonStringFragment(caption)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+        let html = """
+        <!-- Source URL: https://www.instagram.com/reel/escaped-serverjs/ -->
+        <html>
+          <head><title>Instagram</title></head>
+          <body>
+            <script>
+            requireLazy(["ServerJS"],function(ServerJS){ServerJS.handle("{\\"edge_media_to_caption\\":{\\"edges\\":[{\\"node\\":{\\"text\\":\\"\(embeddedCaption)\\"}}]}}");});
+            </script>
+          </body>
+        </html>
+        """
+        let inputURL = URL(string: "https://www.instagram.com/reel/escaped-serverjs/")!
+        let initialFetched = importer.parseFetchedContent(html: html, inputURL: inputURL, importerType: "instagram")
+        let extractedCaption = try XCTUnwrap(RecipeImporter.extractInstagramCaption(html: html, metadata: initialFetched.metadata))
+        let draft = try makeDraft(
+            html: html,
+            inputURL: inputURL,
+            importerType: "instagram",
+            rawImportedTextOverride: extractedCaption,
+            textSource: "instagramCaption"
+        )
+
+        XCTAssertEqual(draft.importedTextSource, "instagramCaption")
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("パスタ") && $0.contains("100g") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("牛乳") && $0.contains("100ml") }, debug(draft))
+        XCTAssertFalse(draft.ingredientLines.contains { $0.contains("水を加えて") }, debug(draft))
+        XCTAssertTrue(draft.instructionLines.contains { $0.contains("水を加えて") && $0.contains("パスタ") }, debug(draft))
+    }
+
     func testPlainParserInstagramCaptionKeepsNumberedIngredientsInIngredientSection() throws {
         let text = """
         番号つき材料のテスト
@@ -610,6 +718,7 @@ final class RecipeTextExtractorTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testManualRealURLIntegrationSmoke() async throws {
         guard ProcessInfo.processInfo.environment["RUN_IMPORT_SMOKE_TESTS"] == "1" else {
             throw XCTSkip("Set RUN_IMPORT_SMOKE_TESTS=1 to fetch live URLs and print import diagnostics.")
@@ -647,6 +756,28 @@ final class RecipeTextExtractorTests: XCTestCase {
             if expectation.sourceURL.contains("orangepage") {
                 XCTAssertGreaterThanOrEqual(draft.instructionLines.count, 3, debug(draft))
             }
+        }
+
+        for expectation in Self.instagramLiveSmokeExpectations {
+            let draft = try await service.importRecipe(from: expectation.sourceURL)
+            let diagnostics = try XCTUnwrap(draft.importDiagnostics)
+            print("""
+            [RecipeImportSmoke][Instagram]
+            sourceURL: \(diagnostics.inputURL)
+            finalURL: \(diagnostics.finalURL ?? "")
+            importerType: \(diagnostics.importerType)
+            extractionSource: \(diagnostics.extractionSource)
+            extractorInputTextLength: \(diagnostics.extractorInputTextLength)
+            extractedIngredients count: \(diagnostics.extractedIngredients.count)
+            extractedInstructions count: \(diagnostics.extractedInstructions.count)
+            warnings: \(draft.extractionWarnings.joined(separator: " | "))
+            expectedFailureMode: \(expectation.expectedFailureMode)
+            """)
+
+            XCTAssertEqual(diagnostics.importerType, expectation.importerType)
+            XCTAssertEqual(diagnostics.extractionSource, "instagramCaption", debug(draft))
+            XCTAssertGreaterThanOrEqual(draft.ingredientLines.count, expectation.minimumIngredientsCount, debug(draft))
+            XCTAssertGreaterThanOrEqual(draft.instructionLines.count, expectation.minimumInstructionsCount, debug(draft))
         }
     }
 
@@ -775,6 +906,12 @@ final class RecipeTextExtractorTests: XCTestCase {
         default:
             return "webArticle"
         }
+    }
+
+    private static func jsonStringFragment(_ text: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [text])
+        let encoded = String(decoding: data, as: UTF8.self)
+        return String(encoded.dropFirst(2).dropLast(2))
     }
 
     private func fixtureText(_ name: String, ext: String) throws -> String {

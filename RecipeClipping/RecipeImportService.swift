@@ -661,8 +661,11 @@ final class RecipeImporter {
             .flatMap { script in
                 [
                     firstCapture(pattern: #"edge_media_to_caption"\s*:\s*\{.*?"text"\s*:\s*"((?:\\.|[^"\\])*)""#, in: script),
+                    firstCapture(pattern: #"edge_media_to_caption\\":\{.*?\\"text\\":\\"((?:\\\\.|[^\"])*)\\""#, in: script),
                     firstCapture(pattern: #""caption"\s*:\s*\{.*?"text"\s*:\s*"((?:\\.|[^"\\])*)""#, in: script),
+                    firstCapture(pattern: #"\\"caption\\"\s*:\s*\{.*?\\"text\\"\s*:\s*\\"((?:\\\\.|[^\"])*)\\""#, in: script),
                     firstCapture(pattern: #""caption"\s*:\s*"((?:\\.|[^"\\])*)""#, in: script),
+                    firstCapture(pattern: #"\\"caption\\"\s*:\s*\\"((?:\\\\.|[^\"])*)\\""#, in: script),
                     firstCapture(pattern: #""text"\s*:\s*"((?:\\.|[^"\\]){40,})""#, in: script)
                 ]
                 .compactMap { $0 }
@@ -765,12 +768,21 @@ final class RecipeImporter {
     }
 
     private nonisolated static func decodeJSONStringFragment(_ fragment: String) -> String? {
-        let json = "\"\(fragment)\""
-        guard let data = json.data(using: .utf8),
-              let decoded = try? JSONSerialization.jsonObject(with: data) as? String else {
-            return fragment
+        var current = fragment
+        for _ in 0..<3 {
+            let sanitized = current
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+                .replacingOccurrences(of: "\t", with: "\\t")
+            let json = "\"\(sanitized)\""
+            guard let data = json.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String,
+                  decoded != current else {
+                break
+            }
+            current = decoded
         }
-        return decoded
+        return current
     }
 
     private nonisolated static func looksLikeRecipeBody(_ text: String) -> Bool {
