@@ -10,6 +10,9 @@ struct RecipeDetailView: View {
     @State private var showingAddCookLog = false
     @State private var showingEditView = false
     @State private var showingShareSheet = false
+    @State private var shareItems: [Any] = []
+    @State private var exportMessage: RecipeExportMessage?
+    @State private var isExportingPDF = false
 
     var body: some View {
         ScrollView {
@@ -17,6 +20,7 @@ struct RecipeDetailView: View {
                 heroImage
                 titleBlock
                 sourceButton
+                summarySection
                 ingredientsSection
                 instructionsSection
                 notesSection
@@ -31,10 +35,26 @@ struct RecipeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    showingShareSheet = true
+                Menu {
+                    Button {
+                        shareItems = [shareText]
+                        showingShareSheet = true
+                    } label: {
+                        Label("テキストで共有", systemImage: "text.alignleft")
+                    }
+
+                    Button {
+                        exportSinglePDF()
+                    } label: {
+                        Label("PDFで共有", systemImage: "doc.richtext")
+                    }
+                    .disabled(isExportingPDF)
                 } label: {
                     Image(systemName: "square.and.arrow.up")
+                }
+
+                if isExportingPDF {
+                    ProgressView()
                 }
                 Button("編集") {
                     showingEditView = true
@@ -45,10 +65,17 @@ struct RecipeDetailView: View {
             RecipeEditView(recipe: recipe)
         }
         .sheet(isPresented: $showingShareSheet) {
-            ActivityView(activityItems: [shareText])
+            ShareSheet(activityItems: shareItems)
         }
         .sheet(isPresented: $showingAddCookLog) {
             AddCookLogView(recipe: recipe)
+        }
+        .alert(item: $exportMessage) { message in
+            Alert(
+                title: Text(message.title),
+                message: Text(message.detail),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .onAppear {
             recipe.refreshDerivedFields()
@@ -220,6 +247,19 @@ struct RecipeDetailView: View {
             blocks.append("元URL:\n\(recipe.sourceURLString)")
         }
         return blocks.joined(separator: "\n\n")
+    }
+
+    @MainActor
+    private func exportSinglePDF() {
+        isExportingPDF = true
+        do {
+            let url = try RecipePDFExporter().exportSingle(recipe: recipe)
+            shareItems = [url]
+            showingShareSheet = true
+        } catch {
+            exportMessage = RecipeExportMessage(title: "PDFの作成に失敗しました。", detail: error.localizedDescription)
+        }
+        isExportingPDF = false
     }
 }
 
@@ -450,16 +490,6 @@ private struct LabeledCookLogText: View {
     }
 }
 
-private struct ActivityView: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
 private struct AddCookLogView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -543,4 +573,10 @@ private struct AddCookLogView: View {
         try? modelContext.save()
         dismiss()
     }
+}
+
+private struct RecipeExportMessage: Identifiable {
+    let id = UUID()
+    var title: String
+    var detail: String
 }

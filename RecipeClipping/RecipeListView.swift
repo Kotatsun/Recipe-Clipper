@@ -14,6 +14,8 @@ struct RecipeListView: View {
     @State private var backupDocument: RecipeBackupDocument?
     @State private var showingBackupExporter = false
     @State private var showingBackupImporter = false
+    @State private var showingPDFShareSheet = false
+    @State private var pdfShareURL: URL?
     @State private var pendingRestoreURL: BackupRestoreSelection?
     @State private var backupMessage: BackupMessage?
     @State private var isRunningBackupTask = false
@@ -72,6 +74,13 @@ struct RecipeListView: View {
                             .disabled(isRunningBackupTask)
 
                             Button {
+                                Task { await exportAllRecipesPDF() }
+                            } label: {
+                                Label("全レシピをPDFでバックアップ", systemImage: "doc.richtext")
+                            }
+                            .disabled(isRunningBackupTask)
+
+                            Button {
                                 showingBackupImporter = true
                             } label: {
                                 Label("バックアップから復元", systemImage: "arrow.counterclockwise")
@@ -115,6 +124,11 @@ struct RecipeListView: View {
                     }
                 case .failure(let error):
                     backupMessage = BackupMessage(title: "バックアップを開けませんでした", detail: error.localizedDescription)
+                }
+            }
+            .sheet(isPresented: $showingPDFShareSheet) {
+                if let pdfShareURL {
+                    ShareSheet(activityItems: [pdfShareURL])
                 }
             }
             .confirmationDialog(
@@ -200,6 +214,24 @@ struct RecipeListView: View {
             showingBackupExporter = true
         } catch {
             backupMessage = BackupMessage(title: "バックアップ作成に失敗しました", detail: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func exportAllRecipesPDF() async {
+        guard !recipes.isEmpty else {
+            backupMessage = BackupMessage(title: "書き出すレシピがありません。", detail: "")
+            return
+        }
+
+        isRunningBackupTask = true
+        defer { isRunningBackupTask = false }
+
+        do {
+            pdfShareURL = try RecipePDFExporter().exportAll(recipes: recipes)
+            showingPDFShareSheet = true
+        } catch {
+            backupMessage = BackupMessage(title: "PDFの作成に失敗しました。", detail: error.localizedDescription)
         }
     }
 
