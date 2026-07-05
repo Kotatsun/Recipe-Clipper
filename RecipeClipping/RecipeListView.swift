@@ -11,6 +11,7 @@ struct RecipeListView: View {
     @State private var importURLText: String?
     @State private var searchText = ""
     @State private var selectedFilter: RecipeFilter = .all
+    @State private var selectedTag: String?
     @State private var backupDocument: RecipeBackupDocument?
     @State private var showingBackupExporter = false
     @State private var showingBackupImporter = false
@@ -28,7 +29,17 @@ struct RecipeListView: View {
         recipes
             .filter(matchesSearch)
             .filter { selectedFilter.matches($0) }
+            .filter(matchesSelectedTag)
             .sorted(by: sort.areInIncreasingOrder)
+    }
+
+    private var allTags: [String] {
+        let counts = Dictionary(grouping: recipes.flatMap(\.tags), by: { $0 })
+            .mapValues(\.count)
+        return counts.sorted { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+        }
+        .map(\.key)
     }
 
     var body: some View {
@@ -36,6 +47,9 @@ struct RecipeListView: View {
             List {
                 Section {
                     FilterChipRow(selectedFilter: $selectedFilter)
+                    if !allTags.isEmpty {
+                        TagChipRow(tags: allTags, selectedTag: $selectedTag)
+                    }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
 
@@ -248,6 +262,11 @@ struct RecipeListView: View {
         }
     }
 
+    private func matchesSelectedTag(_ recipe: Recipe) -> Bool {
+        guard let selectedTag else { return true }
+        return recipe.tags.contains { $0.caseInsensitiveCompare(selectedTag) == .orderedSame }
+    }
+
     private func matchesSearch(_ recipe: Recipe) -> Bool {
         let words = searchText
             .lowercased()
@@ -292,6 +311,34 @@ private struct FilterChipRow: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .tint(selectedFilter == filter ? .accentColor : .secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct TagChipRow: View {
+    let tags: [String]
+    @Binding var selectedTag: String?
+
+    private var displayTags: [String] {
+        guard let selectedTag, !tags.contains(selectedTag) else { return tags }
+        return [selectedTag] + tags
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(displayTags, id: \.self) { tag in
+                    Button {
+                        selectedTag = selectedTag == tag ? nil : tag
+                    } label: {
+                        Text("# \(tag)")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(selectedTag == tag ? .accentColor : .secondary)
                 }
             }
             .padding(.vertical, 2)

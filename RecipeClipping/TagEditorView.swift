@@ -11,8 +11,12 @@ struct TagEditorView: View {
     }
 
     private var availableSuggestions: [String] {
-        suggestions.filter { suggestion in
-            !tags.contains { $0.caseInsensitiveCompare(suggestion) == .orderedSame }
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return suggestions.filter { suggestion in
+            let notAdded = !tags.contains { $0.caseInsensitiveCompare(suggestion) == .orderedSame }
+            let matchesInput = trimmedInput.isEmpty
+                || suggestion.localizedCaseInsensitiveContains(trimmedInput)
+            return notAdded && matchesInput
         }
     }
 
@@ -50,9 +54,10 @@ struct TagEditorView: View {
             if !availableSuggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(availableSuggestions.prefix(8), id: \.self) { suggestion in
+                        ForEach(availableSuggestions, id: \.self) { suggestion in
                             Button(suggestion) {
                                 add(suggestion)
+                                input = ""
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)

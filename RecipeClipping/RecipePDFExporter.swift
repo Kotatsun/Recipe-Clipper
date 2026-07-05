@@ -310,14 +310,14 @@ private final class PDFRecipeRenderer {
             UIBezierPath(roundedRect: rect, cornerRadius: 12).fill()
             drawDirectText(
                 item.0,
-                rect: rect.insetBy(dx: 14, dy: 10),
+                rect: CGRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 16),
                 font: .systemFont(ofSize: 10, weight: .semibold),
                 color: Palette.mutedInk,
                 alignment: .left
             )
             drawDirectText(
                 item.1,
-                rect: rect.insetBy(dx: 14, dy: 28),
+                rect: CGRect(x: rect.minX + 14, y: rect.minY + 30, width: rect.width - 28, height: 26),
                 font: .boldSystemFont(ofSize: 17),
                 color: Palette.ink,
                 alignment: .left
