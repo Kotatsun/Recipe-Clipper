@@ -42,28 +42,30 @@ struct RecipeListView: View {
         .map(\.key)
     }
 
+    private var totalCookCount: Int {
+        recipes.reduce(0) { $0 + $1.cookLogs.count }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    FilterChipRow(selectedFilter: $selectedFilter)
-                    if !allTags.isEmpty {
-                        TagChipRow(tags: allTags, selectedTag: $selectedTag)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18, pinnedViews: [.sectionHeaders]) {
+                    headerBlock
+                    Section {
+                        cardsBlock
+                    } header: {
+                        chipBlock
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
-
-                ForEach(visibleRecipes) { recipe in
-                    NavigationLink {
-                        RecipeDetailView(recipe: recipe)
-                    } label: {
-                        RecipeRow(recipe: recipe)
-                    }
-                }
-                .onDelete(perform: deleteRecipes)
+                .padding(.top, 4)
+                .padding(.bottom, 32)
             }
-            .navigationTitle("Recipe Clipper")
+            .background(backgroundView)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "料理名・タグ・材料・メモで検索")
+            .animation(.snappy(duration: 0.25), value: selectedFilter)
+            .animation(.snappy(duration: 0.25), value: selectedTag)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -201,6 +203,144 @@ struct RecipeListView: View {
         }
     }
 
+    private var backgroundView: some View {
+        LinearGradient(
+            colors: [
+                RecipePalette.tomato.opacity(0.10),
+                Color(.systemBackground),
+                RecipePalette.basil.opacity(0.07)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+
+    private var headerBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Recipe Clipper")
+                .font(.system(size: 34, weight: .bold, design: .serif))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [RecipePalette.tomato, RecipePalette.ember],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+            HStack(spacing: 10) {
+                Label("\(recipes.count)品", systemImage: "book.pages")
+                Label("\(totalCookCount)回作った", systemImage: "frying.pan")
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.top, 6)
+        .padding(.horizontal, 16)
+    }
+
+    private var chipBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(RecipeFilter.allCases) { filter in
+                        ChipButton(
+                            title: filter.title,
+                            isSelected: selectedFilter == filter,
+                            selectedColors: [RecipePalette.tomato, RecipePalette.ember]
+                        ) {
+                            selectedFilter = filter
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 2)
+            }
+
+            if !allTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(displayTags, id: \.self) { tag in
+                            ChipButton(
+                                title: "# \(tag)",
+                                isSelected: selectedTag == tag,
+                                selectedColors: [RecipePalette.basil, RecipePalette.leafLight]
+                            ) {
+                                selectedTag = selectedTag == tag ? nil : tag
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+    }
+
+    private var displayTags: [String] {
+        guard let selectedTag, !allTags.contains(selectedTag) else { return allTags }
+        return [selectedTag] + allTags
+    }
+
+    @ViewBuilder
+    private var cardsBlock: some View {
+        if let featured = visibleRecipes.first {
+            NavigationLink {
+                RecipeDetailView(recipe: featured)
+            } label: {
+                FeaturedRecipeCard(recipe: featured)
+            }
+            .buttonStyle(CardPressStyle())
+            .contextMenu { cardMenu(for: featured) }
+            .padding(.horizontal, 16)
+        }
+
+        let rest = Array(visibleRecipes.dropFirst())
+        if !rest.isEmpty {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
+                spacing: 14
+            ) {
+                ForEach(rest) { recipe in
+                    NavigationLink {
+                        RecipeDetailView(recipe: recipe)
+                    } label: {
+                        GridRecipeCard(recipe: recipe)
+                    }
+                    .buttonStyle(CardPressStyle())
+                    .contextMenu { cardMenu(for: recipe) }
+                    .scrollTransition { content, phase in
+                        content
+                            .opacity(phase.isIdentity ? 1 : 0.55)
+                            .scaleEffect(phase.isIdentity ? 1 : 0.94)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    @ViewBuilder
+    private func cardMenu(for recipe: Recipe) -> some View {
+        Button {
+            recipe.isFavorite.toggle()
+            try? modelContext.save()
+        } label: {
+            Label(
+                recipe.isFavorite ? "お気に入りを外す" : "お気に入りに追加",
+                systemImage: recipe.isFavorite ? "heart.slash" : "heart"
+            )
+        }
+
+        Button(role: .destructive) {
+            delete(recipe)
+        } label: {
+            Label("削除", systemImage: "trash")
+        }
+    }
+
     private var defaultBackupFileName: String {
         let dateText = Date().formatted(.iso8601.year().month().day())
         return "RecipeClipper-Backup-\(dateText).zip"
@@ -277,12 +417,18 @@ struct RecipeListView: View {
         return words.allSatisfy { target.contains($0) }
     }
 
-    private func deleteRecipes(offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(visibleRecipes[index])
-        }
+    private func delete(_ recipe: Recipe) {
+        modelContext.delete(recipe)
         try? modelContext.save()
     }
+}
+
+enum RecipePalette {
+    static let tomato = Color(red: 0.86, green: 0.25, blue: 0.16)
+    static let ember = Color(red: 0.95, green: 0.48, blue: 0.22)
+    static let basil = Color(red: 0.15, green: 0.44, blue: 0.33)
+    static let leafLight = Color(red: 0.35, green: 0.62, blue: 0.42)
+    static let cream = Color(red: 1.00, green: 0.96, blue: 0.88)
 }
 
 private struct BackupMessage: Identifiable {
@@ -296,105 +442,233 @@ private struct BackupRestoreSelection: Identifiable {
     var url: URL
 }
 
-private struct FilterChipRow: View {
-    @Binding var selectedFilter: RecipeFilter
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(RecipeFilter.allCases) { filter in
-                    Button {
-                        selectedFilter = filter
-                    } label: {
-                        Text(filter.title)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(selectedFilter == filter ? .accentColor : .secondary)
-                }
-            }
-            .padding(.vertical, 2)
-        }
+private struct CardPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.965 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
-private struct TagChipRow: View {
-    let tags: [String]
-    @Binding var selectedTag: String?
-
-    private var displayTags: [String] {
-        guard let selectedTag, !tags.contains(selectedTag) else { return tags }
-        return [selectedTag] + tags
-    }
+private struct ChipButton: View {
+    let title: String
+    let isSelected: Bool
+    let selectedColors: [Color]
+    let action: () -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(displayTags, id: \.self) { tag in
-                    Button {
-                        selectedTag = selectedTag == tag ? nil : tag
-                    } label: {
-                        Text("# \(tag)")
+        Button(action: action) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .foregroundStyle(isSelected ? .white : .primary)
+                .background {
+                    if isSelected {
+                        Capsule().fill(
+                            LinearGradient(
+                                colors: selectedColors,
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    } else {
+                        Capsule().fill(.ultraThinMaterial)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(selectedTag == tag ? .accentColor : .secondary)
                 }
-            }
-            .padding(.vertical, 2)
+                .overlay {
+                    if !isSelected {
+                        Capsule().strokeBorder(.quaternary, lineWidth: 1)
+                    }
+                }
+                .shadow(
+                    color: isSelected ? selectedColors[0].opacity(0.35) : .clear,
+                    radius: 6,
+                    y: 3
+                )
         }
+        .buttonStyle(.plain)
     }
 }
 
-private struct RecipeRow: View {
+private struct CardImage: View {
+    let fileName: String?
+    var placeholderIconSize: CGFloat = 34
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                if let image = ImageStore.uiImage(for: fileName) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(
+                            colors: [RecipePalette.cream, RecipePalette.ember.opacity(0.35)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        Image(systemName: "fork.knife")
+                            .font(.system(size: placeholderIconSize, weight: .light))
+                            .foregroundStyle(RecipePalette.tomato.opacity(0.55))
+                    }
+                }
+            }
+            .clipped()
+            // scaledToFillの画像は枠外まではみ出しており、clippedは見た目しか
+            // 切り抜かないため、タッチ判定ごと無効化して枠外のタップ吸収を防ぐ
+            .allowsHitTesting(false)
+    }
+}
+
+private struct FavoriteBadge: View {
+    var body: some View {
+        Image(systemName: "heart.fill")
+            .font(.caption)
+            .foregroundStyle(.pink)
+            .padding(7)
+            .background(.ultraThinMaterial, in: Circle())
+    }
+}
+
+private struct FeaturedRecipeCard: View {
     let recipe: Recipe
 
     var body: some View {
-        HStack(spacing: 12) {
-            LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 12, contentMode: .fill)
-                .frame(width: 72, height: 72)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+        ZStack(alignment: .bottomLeading) {
+            CardImage(fileName: recipe.localImageFileName, placeholderIconSize: 48)
+                .frame(height: 230)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(recipe.title)
-                        .font(.headline)
-                        .lineLimit(2)
-                    if recipe.isFavorite {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                            .font(.caption)
-                    }
-                }
+            LinearGradient(
+                colors: [.black.opacity(0.78), .black.opacity(0.25), .clear],
+                startPoint: .bottom,
+                endPoint: .center
+            )
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("PICK UP")
+                    .font(.system(size: 11, weight: .heavy))
+                    .kerning(2.5)
+                    .foregroundStyle(RecipePalette.ember)
 
                 HStack(spacing: 6) {
                     Text(recipe.sourceKind.displayName)
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(RecipePalette.tomato, in: Capsule())
+                        .foregroundStyle(.white)
+
+                    if let firstTag = recipe.tags.first {
+                        Text("# \(firstTag)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                }
+
+                Text(recipe.title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 8) {
                     if recipe.rating > 0 {
                         Text(RatingStars.text(for: recipe.rating))
+                            .foregroundStyle(.yellow)
                     }
                     if let lastCookedAt = recipe.lastCookedAt {
                         Text("作った: \(lastCookedAt.formatted(date: .numeric, time: .omitted))")
                     }
                 }
                 .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(16)
+        }
+        .frame(height: 230)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(alignment: .topTrailing) {
+            if recipe.isFavorite {
+                FavoriteBadge()
+                    .padding(10)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+    }
+}
+
+private struct GridRecipeCard: View {
+    let recipe: Recipe
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CardImage(fileName: recipe.localImageFileName)
+                .frame(height: 118)
+                .overlay(alignment: .topTrailing) {
+                    if recipe.isFavorite {
+                        FavoriteBadge()
+                            .padding(7)
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if recipe.wantsRemake {
+                        Image(systemName: "bookmark.fill")
+                            .font(.caption)
+                            .foregroundStyle(RecipePalette.leafLight)
+                            .padding(7)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .padding(7)
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(recipe.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 38, alignment: .top)
+
+                HStack(spacing: 5) {
+                    if recipe.rating > 0 {
+                        Text(RatingStars.text(for: recipe.rating))
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text(recipe.sourceKind.displayName)
+                    }
+                    Spacer(minLength: 0)
+                    if !recipe.cookLogs.isEmpty {
+                        Label("\(recipe.cookLogs.count)", systemImage: "frying.pan")
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+                .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
                 if !recipe.tags.isEmpty {
-                    Text(recipe.tags.joined(separator: " / "))
+                    Text(recipe.tags.prefix(3).map { "#\($0)" }.joined(separator: " "))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else if !recipe.sourceHost.isEmpty {
-                    Text(recipe.sourceHost)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(RecipePalette.basil)
                         .lineLimit(1)
                 }
             }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground))
         }
-        .padding(.vertical, 4)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .contentShape(RoundedRectangle(cornerRadius: 18))
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
+        .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
     }
 }
 

@@ -30,7 +30,18 @@ struct RecipeDetailView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(
+            LinearGradient(
+                colors: [
+                    RecipePalette.tomato.opacity(0.09),
+                    Color(.systemGroupedBackground),
+                    RecipePalette.basil.opacity(0.06)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
         .navigationTitle("レシピ")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -83,16 +94,44 @@ struct RecipeDetailView: View {
     }
 
     private var heroImage: some View {
-        LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 18, contentMode: .fit)
+        LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 24, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 220, maxHeight: 340)
-            .background(.background, in: RoundedRectangle(cornerRadius: 18))
+            .background(.background, in: RoundedRectangle(cornerRadius: 24))
+            .shadow(color: .black.opacity(0.14), radius: 12, y: 6)
     }
 
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(recipe.sourceKind.displayName)
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(RecipePalette.tomato, in: Capsule())
+                    .foregroundStyle(.white)
+
+                if recipe.isFavorite {
+                    Label("お気に入り", systemImage: "heart.fill")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.pink.opacity(0.14), in: Capsule())
+                        .foregroundStyle(.pink)
+                }
+
+                if recipe.wantsRemake {
+                    Text("また作りたい")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(RecipePalette.basil.opacity(0.14), in: Capsule())
+                        .foregroundStyle(RecipePalette.basil)
+                }
+            }
+
             Text(recipe.title)
-                .font(.title2.weight(.bold))
+                .font(.system(.title2, design: .serif, weight: .bold))
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
 
@@ -109,9 +148,20 @@ struct RecipeDetailView: View {
         if let url = recipe.sourceURL {
             Link(destination: url) {
                 Label("元レシピを開く", systemImage: "safari")
+                    .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(
+                        LinearGradient(
+                            colors: [RecipePalette.tomato, RecipePalette.ember],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        in: Capsule()
+                    )
+                    .foregroundStyle(.white)
+                    .shadow(color: RecipePalette.tomato.opacity(0.35), radius: 8, y: 4)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -160,7 +210,15 @@ struct RecipeDetailView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 26, height: 26)
-                                .background(Circle().fill(Color.accentColor))
+                                .background(
+                                    Circle().fill(
+                                        LinearGradient(
+                                            colors: [RecipePalette.tomato, RecipePalette.ember],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                )
                             Text(line)
                                 .font(.body)
                                 .lineSpacing(4)
@@ -397,13 +455,25 @@ private struct DetailSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
+            HStack(spacing: 9) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(
+                        LinearGradient(
+                            colors: [RecipePalette.tomato, RecipePalette.ember],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 4, height: 17)
+                Text(title)
+                    .font(.system(.headline, design: .serif, weight: .bold))
+            }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
     }
 }
 
@@ -427,12 +497,13 @@ private struct FlowTags: View {
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 86), spacing: 8)], alignment: .leading, spacing: 8) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption)
+                Text("# \(tag)")
+                    .font(.caption.weight(.semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity)
-                    .background(.secondary.opacity(0.12), in: Capsule())
+                    .background(RecipePalette.basil.opacity(0.12), in: Capsule())
+                    .foregroundStyle(RecipePalette.basil)
             }
         }
     }
@@ -470,7 +541,7 @@ private struct CookLogCard: View {
             }
         }
         .padding(12)
-        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
