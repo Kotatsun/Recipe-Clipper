@@ -18,6 +18,15 @@ enum URLNormalizer {
         if let url = URL(string: trimmed), url.scheme != nil {
             return url
         }
+        // スキームなし入力はドメインらしい文字列のときだけhttpsを補う。
+        // 任意のテキストをURL扱いすると、URLでない入力が「取得失敗」として
+        // 表面化してしまい、invalidURLの分かりやすいエラーを出せない
+        guard trimmed.range(
+            of: #"^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(/\S*)?$"#,
+            options: .regularExpression
+        ) != nil else {
+            return nil
+        }
         return URL(string: "https://\(trimmed)")
     }
 

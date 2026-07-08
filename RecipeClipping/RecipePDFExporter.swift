@@ -119,9 +119,9 @@ private extension RecipePDFSnapshot {
     }
 
     static func compressedImageData(fileName: String?, maxPixelLength: CGFloat) -> Data? {
-        guard let image = ImageStore.uiImage(for: fileName) else { return nil }
-        let resized = image.resizedForPDF(maxPixelLength: maxPixelLength)
-        return resized.jpegData(compressionQuality: 0.78)
+        // ImageIOのサムネイル生成でフル解像度のデコードを避ける
+        guard let image = ImageStore.thumbnail(for: fileName, maxPixelLength: maxPixelLength) else { return nil }
+        return image.jpegData(compressionQuality: 0.78)
     }
 }
 
@@ -752,19 +752,5 @@ private final class PDFRecipeRenderer {
             }
         }
         return nil
-    }
-}
-
-private extension UIImage {
-    func resizedForPDF(maxPixelLength: CGFloat) -> UIImage {
-        let longestSide = max(size.width, size.height)
-        guard longestSide > maxPixelLength, longestSide > 0 else { return self }
-
-        let scale = maxPixelLength / longestSide
-        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        return renderer.image { _ in
-            draw(in: CGRect(origin: .zero, size: targetSize))
-        }
     }
 }

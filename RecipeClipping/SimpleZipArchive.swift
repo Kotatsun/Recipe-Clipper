@@ -38,9 +38,16 @@ enum SimpleZipArchive {
         var centralDirectory = Data()
         var entries: [CentralDirectoryEntry] = []
 
+        // /var → /private/var のようなシンボリックリンク差でプレフィックスが
+        // 一致しないとエントリ名が絶対パスになるため、両方を解決してから比較する
+        let basePath = directoryURL.resolvingSymlinksInPath().path
+
         for fileURL in fileURLs {
-            let relativePath = fileURL.path
-                .replacingOccurrences(of: directoryURL.path + "/", with: "")
+            let filePath = fileURL.resolvingSymlinksInPath().path
+            guard filePath.hasPrefix(basePath + "/") else {
+                throw ZipError.invalidArchive
+            }
+            let relativePath = String(filePath.dropFirst(basePath.count + 1))
             let nameData = Data(relativePath.utf8)
             let fileData = try Data(contentsOf: fileURL)
             guard fileData.count <= Int(UInt32.max), output.count <= Int(UInt32.max) else {

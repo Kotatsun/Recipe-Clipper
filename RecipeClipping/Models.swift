@@ -72,7 +72,9 @@ final class Recipe {
         self.sourceKindRaw = sourceKindRaw
         self.extractedRawText = extractedRawText
         self.rawImportedText = rawImportedText.isEmpty ? extractedRawText : rawImportedText
-        self.rawImportedHTML = rawImportedHTML
+        // 生HTMLはテストケース採取用の保険。YouTube等ではMB級になり
+        // ストアとバックアップを肥大させるため、全生成経路(インポート・復元)で先頭のみ保持する
+        self.rawImportedHTML = String(rawImportedHTML.prefix(Self.maxRawImportedHTMLLength))
         self.importedTextSource = importedTextSource
         self.extractionConfidence = extractionConfidence
         self.extractionWarningsText = extractionWarningsText
@@ -113,10 +115,8 @@ final class Recipe {
         cookLogs.map(\.cookedAt).max()
     }
 
-    var hasImage: Bool {
-        ImageStore.url(for: localImageFileName).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-    }
-
+    // rawImportedTextはページ全文で巨大になりうるため検索対象に含めない
+    // (1キーストロークごとに全レシピ分を連結・lowercaseするコストが大きい)
     var searchableText: String {
         [
             title,
@@ -125,7 +125,6 @@ final class Recipe {
             tagsText,
             ingredientLinesText,
             instructionLinesText,
-            rawImportedText,
             sourceHost,
             sourceURLString,
             sourceKind.displayName
@@ -135,10 +134,13 @@ final class Recipe {
     func refreshDerivedFields() {
         tagsText = Self.normalizedTagsText(from: tagsText)
         normalizedSourceURLString = URLNormalizer.normalizedString(for: sourceURLString)
-        if sourceKindRaw.isEmpty || sourceKindRaw == "web" {
+        // 種別は編集画面でユーザーが変更できるため、未設定のときだけ自動判定する
+        if sourceKindRaw.isEmpty {
             sourceKindRaw = RecipeSourceKind.detect(urlString: sourceURLString, host: sourceHost).rawValue
         }
     }
+
+    static let maxRawImportedHTMLLength = 500_000
 
     static func normalizedTags(from text: String) -> [String] {
         var seen: Set<String> = []

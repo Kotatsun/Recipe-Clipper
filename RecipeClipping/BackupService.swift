@@ -26,7 +26,10 @@ enum BackupService {
     private static let imagesDirectoryName = "RecipeImages"
 
     @MainActor
-    static func makeArchiveData(from recipes: [Recipe]) throws -> Data {
+    static func makeArchiveData(
+        from recipes: [Recipe],
+        imagesDirectoryURL: URL = ImageStore.directoryURL
+    ) throws -> Data {
         let fileManager = FileManager.default
         let workingDirectory = try temporaryDirectory(named: "RecipeClipperBackup")
         defer { try? fileManager.removeItem(at: workingDirectory) }
@@ -38,10 +41,9 @@ enum BackupService {
         let jsonData = try encoder.encode(payload)
         try jsonData.write(to: workingDirectory.appendingPathComponent(backupFileName), options: [.atomic])
 
-        let sourceImagesURL = ImageStore.directoryURL
-        if fileManager.fileExists(atPath: sourceImagesURL.path) {
+        if fileManager.fileExists(atPath: imagesDirectoryURL.path) {
             try fileManager.copyItem(
-                at: sourceImagesURL,
+                at: imagesDirectoryURL,
                 to: workingDirectory.appendingPathComponent(imagesDirectoryName, isDirectory: true)
             )
         }
@@ -49,8 +51,15 @@ enum BackupService {
         return try SimpleZipArchive.archiveData(from: workingDirectory)
     }
 
+    /// 復元は「展開・デコードの完全な検証 → 現行画像の退避 → 入れ替え」の順で行い、
+    /// 途中で失敗した場合は退避した画像とModelContextを元に戻す。
+    /// 既存データの削除は、バックアップ内容が使えると確定した後にのみ実行される。
     @MainActor
-    static func restore(from archiveURL: URL, modelContext: ModelContext) throws -> Int {
+    static func restore(
+        from archiveURL: URL,
+        modelContext: ModelContext,
+        imagesDirectoryURL: URL = ImageStore.directoryURL
+    ) throws -> Int {
         let fileManager = FileManager.default
         let workingDirectory = try temporaryDirectory(named: "RecipeClipperRestore")
         defer { try? fileManager.removeItem(at: workingDirectory) }
@@ -63,6 +72,7 @@ enum BackupService {
         }
         let archiveData = try Data(contentsOf: archiveURL)
 
+        // ここまでで失敗しても既存データには一切触れていない
         let expandedURL = workingDirectory.appendingPathComponent("expanded", isDirectory: true)
         try fileManager.createDirectory(at: expandedURL, withIntermediateDirectories: true)
         try SimpleZipArchive.extract(archiveData, to: expandedURL)
@@ -73,33 +83,62 @@ enum BackupService {
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(RecipeClipperBackupPayload.self, from: jsonData)
 
-        let existingRecipes = try modelContext.fetch(FetchDescriptor<Recipe>())
-        for recipe in existingRecipes {
-            modelContext.delete(recipe)
-        }
-        try modelContext.save()
-
+        // 現行画像は削除せず退避し、復元完了まで巻き戻せる状態を保つ。
+        // 退避先はtmpではなく画像ディレクトリの隣に置く: 復元途中でクラッシュしても
+        // 旧画像がシステムのtmp掃除やworkingDirectory削除で消えず、手動復旧できる
         let backupImagesURL = expandedURL.appendingPathComponent(imagesDirectoryName, isDirectory: true)
-        try? fileManager.removeItem(at: ImageStore.directoryURL)
-        if fileManager.fileExists(atPath: backupImagesURL.path) {
-            try fileManager.createDirectory(at: ImageStore.directoryURL, withIntermediateDirectories: true)
-            let imageFiles = try fileManager.contentsOfDirectory(at: backupImagesURL, includingPropertiesForKeys: nil)
-            for fileURL in imageFiles {
-                try fileManager.copyItem(
-                    at: fileURL,
-                    to: ImageStore.directoryURL.appendingPathComponent(fileURL.lastPathComponent)
-                )
+        let retiredImagesURL = imagesDirectoryURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("RecipeImages-retired-\(UUID().uuidString)", isDirectory: true)
+        var movedCurrentImagesAside = false
+        if fileManager.fileExists(atPath: imagesDirectoryURL.path) {
+            try fileManager.moveItem(at: imagesDirectoryURL, to: retiredImagesURL)
+            movedCurrentImagesAside = true
+        }
+
+        func rollbackImages() {
+            try? fileManager.removeItem(at: imagesDirectoryURL)
+            if movedCurrentImagesAside {
+                // 巻き戻しの移動に失敗しても、旧画像はretiredディレクトリに残り失われない
+                try? fileManager.moveItem(at: retiredImagesURL, to: imagesDirectoryURL)
             }
         }
 
-        for recipeBackup in payload.recipes {
-            let recipe = recipeBackup.makeRecipe()
-            modelContext.insert(recipe)
-            for cookLogBackup in recipeBackup.cookLogs {
-                modelContext.insert(cookLogBackup.makeCookLog(recipe: recipe))
+        do {
+            if fileManager.fileExists(atPath: backupImagesURL.path) {
+                try fileManager.moveItem(at: backupImagesURL, to: imagesDirectoryURL)
+            } else {
+                try fileManager.createDirectory(at: imagesDirectoryURL, withIntermediateDirectories: true)
             }
+        } catch {
+            rollbackImages()
+            throw error
         }
-        try modelContext.save()
+
+        do {
+            let existingRecipes = try modelContext.fetch(FetchDescriptor<Recipe>())
+            for recipe in existingRecipes {
+                modelContext.delete(recipe)
+            }
+            for recipeBackup in payload.recipes {
+                let recipe = recipeBackup.makeRecipe()
+                modelContext.insert(recipe)
+                for cookLogBackup in recipeBackup.cookLogs {
+                    modelContext.insert(cookLogBackup.makeCookLog(recipe: recipe))
+                }
+            }
+            // 削除と挿入を1回のsaveにまとめ、失敗時はrollbackで削除ごと巻き戻す
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            rollbackImages()
+            throw error
+        }
+
+        // 全工程が成功したので退避していた旧画像を破棄する
+        if movedCurrentImagesAside {
+            try? fileManager.removeItem(at: retiredImagesURL)
+        }
         return payload.recipes.count
     }
 
