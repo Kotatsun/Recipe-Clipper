@@ -53,6 +53,7 @@ struct RecipeImportDiagnostics {
     var warnings: [String]
 
     func log() {
+        #if DEBUG
         print("""
         [RecipeImportDebug]
         sourceURL:
@@ -108,6 +109,7 @@ struct RecipeImportDiagnostics {
         warnings:
         \(warnings.joined(separator: "\n"))
         """)
+        #endif
     }
 }
 
@@ -1123,20 +1125,6 @@ final class RecipeImportService {
             instructionSource: "none"
         )
 
-        if let linkMetadata = try? await fetchLinkPresentationMetadata(for: url) {
-            if let title = linkMetadata.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
-                result.title = title
-            }
-            if let canonical = linkMetadata.url ?? linkMetadata.originalURL {
-                result.sourceURL = canonical
-            }
-            if let imageData = await loadImageData(from: linkMetadata.imageProvider) {
-                result.imageData = imageData
-            } else if let imageData = await loadImageData(from: linkMetadata.iconProvider) {
-                result.imageData = imageData
-            }
-        }
-
         let sourceKind = RecipeSourceKind.detect(urlString: url.absoluteString, host: host)
         let fetched: FetchedRecipeContent
         do {
@@ -1234,6 +1222,28 @@ final class RecipeImportService {
             result.imageData = try? await downloadImageData(from: imageURL, referer: url)
         }
 
+        // LinkPresentationはページを再取得するため、HTML解析でタイトルか画像が
+        // 取れなかったときだけフォールバックとして使う(取得の二重化を避ける)。
+        // hostが空のURLでは初期タイトルがURL文字列になるため、それもフォールバック扱い
+        let titleIsFallback = result.title == host
+            || result.title == url.absoluteString
+            || result.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if result.imageData == nil || titleIsFallback,
+           let linkMetadata = try? await fetchLinkPresentationMetadata(for: url) {
+            if titleIsFallback,
+               let title = linkMetadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !title.isEmpty {
+                result.title = title
+            }
+            if result.imageData == nil {
+                if let imageData = await loadImageData(from: linkMetadata.imageProvider) {
+                    result.imageData = imageData
+                } else if let imageData = await loadImageData(from: linkMetadata.iconProvider) {
+                    result.imageData = imageData
+                }
+            }
+        }
+
         if result.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             result.title = host.isEmpty ? url.absoluteString : host
         }
@@ -1267,36 +1277,6 @@ final class RecipeImportService {
             seen.insert(trimmed)
             return true
         }
-    }
-
-    private static func siteSpecificExtractorFailureWarnings(
-        for url: URL,
-        rawImportedText: String,
-        extractedInstructions: [String]
-    ) -> [String] {
-        let host = url.host(percentEncoded: false)?.lowercased() ?? ""
-        let isKnownFixtureLikeURL = host.contains("mr-cheesecake.com") || host.contains("orangepage.net")
-        guard isKnownFixtureLikeURL,
-              rawTextContainsRecipeSections(rawImportedText) else {
-            return []
-        }
-
-        let minimumInstructionCount = host.contains("orangepage.net") ? 3 : 6
-        guard extractedInstructions.count < minimumInstructionCount else {
-            return []
-        }
-        return ["実URL本文には材料・作り方が含まれていますが、RecipeTextExtractorで手順を十分に抽出できませんでした。URL取得ではなく抽出処理の失敗として確認してください。"]
-    }
-
-    private static func rawTextContainsRecipeSections(_ text: String) -> Bool {
-        let normalized = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        let hasIngredients = normalized.range(of: "材料|ingredients", options: [.regularExpression, .caseInsensitive]) != nil
-        let hasInstructions = normalized.range(of: "作り方|作りかた|つくり方|手順|instructions|directions|method", options: [.regularExpression, .caseInsensitive]) != nil
-        let hasStepMarkers = normalized.range(
-            of: #"(\([0-9０-９]+\)|（[0-9０-９]+）|[0-9０-９]+[\.)）．。]|[①②③④⑤⑥⑦⑧⑨⑩])"#,
-            options: .regularExpression
-        ) != nil
-        return hasIngredients && hasInstructions && hasStepMarkers
     }
 
     private func fetchLinkPresentationMetadata(for url: URL) async throws -> LPLinkMetadata {
@@ -1424,18 +1404,48 @@ private extension String {
         return result
     }
 
+    // NSAttributedStringのHTMLインポータはWebKitベースでメインスレッド必須かつ低速なため、
+    // 数値文字参照と主要な名前付きエンティティのみを1パスで展開する
+    // (1パス処理なので「&amp;amp;」が二重展開されることはない)
     nonisolated var htmlDecoded: String {
-        guard let data = data(using: .utf8),
-              let attributed = try? NSAttributedString(
-                data: data,
-                options: [
-                    .documentType: NSAttributedString.DocumentType.html,
-                    .characterEncoding: String.Encoding.utf8.rawValue
-                ],
-                documentAttributes: nil
-              ) else {
-            return self
+        guard contains("&") else { return self }
+        guard let regex = Self.htmlEntityRegex else { return self }
+        let nsRange = NSRange(startIndex..<endIndex, in: self)
+        var result = self
+        for match in regex.matches(in: self, range: nsRange).reversed() {
+            guard let fullRange = Range(match.range, in: result),
+                  let bodyRange = Range(match.range(at: 1), in: self),
+                  let decoded = Self.decodedHTMLEntity(String(self[bodyRange])) else {
+                continue
+            }
+            result.replaceSubrange(fullRange, with: decoded)
         }
-        return attributed.string
+        return result
     }
+
+    private nonisolated static func decodedHTMLEntity(_ body: String) -> String? {
+        if body.hasPrefix("#x") || body.hasPrefix("#X") {
+            return UInt32(body.dropFirst(2), radix: 16).flatMap(UnicodeScalar.init).map(String.init)
+        }
+        if body.hasPrefix("#") {
+            return UInt32(body.dropFirst()).flatMap(UnicodeScalar.init).map(String.init)
+        }
+        return namedHTMLEntities[body.lowercased()]
+    }
+
+    // メタタグごとに呼ばれるため、コンパイル済み正規表現を使い回す
+    private nonisolated static let htmlEntityRegex = try? NSRegularExpression(
+        pattern: "&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,30});"
+    )
+
+    private nonisolated static let namedHTMLEntities: [String: String] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+        "nbsp": " ", "copy": "©", "reg": "®", "trade": "™",
+        "hellip": "…", "mdash": "—", "ndash": "–", "middot": "·", "bull": "•",
+        "lsquo": "\u{2018}", "rsquo": "\u{2019}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",
+        "laquo": "«", "raquo": "»", "deg": "°", "times": "×", "divide": "÷",
+        "frac12": "½", "frac14": "¼", "frac34": "¾",
+        "euro": "€", "pound": "£", "yen": "¥", "cent": "¢",
+        "sect": "§", "para": "¶", "plusmn": "±"
+    ]
 }

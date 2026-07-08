@@ -7,16 +7,14 @@ struct RecipeListView: View {
     @Query private var recipes: [Recipe]
 
     @AppStorage("RecipeListSort") private var sortRawValue = RecipeSort.recentlyUpdated.rawValue
-    @State private var showingImport = false
-    @State private var importURLText: String?
+    @State private var importRequest: ImportRequest?
     @State private var searchText = ""
     @State private var selectedFilter: RecipeFilter = .all
     @State private var selectedTag: String?
     @State private var backupDocument: RecipeBackupDocument?
     @State private var showingBackupExporter = false
     @State private var showingBackupImporter = false
-    @State private var showingPDFShareSheet = false
-    @State private var pdfShareURL: URL?
+    @State private var pdfShareItem: PDFShareItem?
     @State private var pendingRestoreURL: BackupRestoreSelection?
     @State private var backupMessage: BackupMessage?
     @State private var isRunningBackupTask = false
@@ -107,8 +105,7 @@ struct RecipeListView: View {
                         }
 
                         Button {
-                            importURLText = nil
-                            showingImport = true
+                            importRequest = ImportRequest(urlText: nil)
                         } label: {
                             Label("URLから追加", systemImage: "plus")
                         }
@@ -142,10 +139,8 @@ struct RecipeListView: View {
                     backupMessage = BackupMessage(title: "バックアップを開けませんでした", detail: error.localizedDescription)
                 }
             }
-            .sheet(isPresented: $showingPDFShareSheet) {
-                if let pdfShareURL {
-                    ShareSheet(activityItems: [pdfShareURL])
-                }
+            .sheet(item: $pdfShareItem) { item in
+                ShareSheet(activityItems: [item.url])
             }
             .confirmationDialog(
                 "バックアップから上書き復元しますか？",
@@ -170,13 +165,14 @@ struct RecipeListView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .sheet(isPresented: $showingImport) {
-                ImportRecipeView(initialURLText: importURLText)
+            .sheet(item: $importRequest) { request in
+                ImportRecipeView(initialURLText: request.urlText)
             }
             .onOpenURL { url in
                 guard let value = URLNormalizer.importURLValue(from: url) else { return }
-                importURLText = value
-                showingImport = true
+                // item差し替えなので、シートが開いたまま次の共有URLを受けても
+                // 新しいURLでインポート画面が作り直される
+                importRequest = ImportRequest(urlText: value)
             }
             .overlay {
                 if recipes.isEmpty {
@@ -382,8 +378,7 @@ struct RecipeListView: View {
         defer { isRunningBackupTask = false }
 
         do {
-            pdfShareURL = try RecipePDFExporter().exportAll(recipes: recipes)
-            showingPDFShareSheet = true
+            pdfShareItem = PDFShareItem(url: try RecipePDFExporter().exportAll(recipes: recipes))
         } catch {
             backupMessage = BackupMessage(title: "PDFの作成に失敗しました。", detail: error.localizedDescription)
         }
@@ -418,9 +413,31 @@ struct RecipeListView: View {
     }
 
     private func delete(_ recipe: Recipe) {
+        // 画像ファイルはDB削除のコミット成功後に消す。
+        // 先に消すと、保存が失敗したときにレシピだけ残って画像を失う
+        var imageFileNames = [recipe.localImageFileName]
+        imageFileNames.append(contentsOf: recipe.cookLogs.map(\.localImageFileName))
+
         modelContext.delete(recipe)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            return
+        }
+        for fileName in imageFileNames {
+            ImageStore.delete(fileName: fileName)
+        }
     }
+}
+
+private struct ImportRequest: Identifiable {
+    let id = UUID()
+    var urlText: String?
+}
+
+private struct PDFShareItem: Identifiable {
+    let id = UUID()
+    var url: URL
 }
 
 enum RecipePalette {
@@ -494,11 +511,12 @@ private struct ChipButton: View {
 private struct CardImage: View {
     let fileName: String?
     var placeholderIconSize: CGFloat = 34
+    var maxPixelLength: CGFloat = 700
 
     var body: some View {
         Color.clear
             .overlay {
-                if let image = ImageStore.uiImage(for: fileName) {
+                if let image = ImageStore.thumbnail(for: fileName, maxPixelLength: maxPixelLength) {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -537,7 +555,7 @@ private struct FeaturedRecipeCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            CardImage(fileName: recipe.localImageFileName, placeholderIconSize: 48)
+            CardImage(fileName: recipe.localImageFileName, placeholderIconSize: 48, maxPixelLength: 1200)
                 .frame(height: 230)
 
             LinearGradient(
@@ -709,7 +727,8 @@ private enum RecipeFilter: String, CaseIterable, Identifiable {
         case .favorite: recipe.isFavorite
         case .cooked: !recipe.cookLogs.isEmpty
         case .notCooked: recipe.cookLogs.isEmpty
-        case .hasImage: recipe.hasImage
+        // fileExistsによるディスクI/Oを描画のたびに走らせないため、ファイル名の有無で判定する
+        case .hasImage: recipe.localImageFileName?.isEmpty == false
         case .instagram: recipe.sourceKind == .instagram
         case .cookpad: recipe.sourceKind == .cookpad
         case .youtube: recipe.sourceKind == .youtube

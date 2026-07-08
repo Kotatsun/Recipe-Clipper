@@ -18,6 +18,4 @@ struct ImportedRecipe {
     var ingredientSource: String = "none"
     var instructionSource: String = "none"
     var importDiagnostics: RecipeImportDiagnostics?
-
-    var hasImage: Bool { imageData != nil }
 }

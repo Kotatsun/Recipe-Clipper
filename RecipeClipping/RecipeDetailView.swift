@@ -9,8 +9,9 @@ struct RecipeDetailView: View {
 
     @State private var showingAddCookLog = false
     @State private var showingEditView = false
-    @State private var showingShareSheet = false
-    @State private var shareItems: [Any] = []
+    @State private var sharePayload: SharePayload?
+    @State private var editingCookLog: CookLog?
+    @State private var cookLogToDelete: CookLog?
     @State private var exportMessage: RecipeExportMessage?
     @State private var isExportingPDF = false
 
@@ -48,8 +49,7 @@ struct RecipeDetailView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
                     Button {
-                        shareItems = [shareText]
-                        showingShareSheet = true
+                        sharePayload = SharePayload(items: [shareText])
                     } label: {
                         Label("テキストで共有", systemImage: "text.alignleft")
                     }
@@ -72,14 +72,32 @@ struct RecipeDetailView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $showingEditView) {
+        .sheet(isPresented: $showingEditView) {
             RecipeEditView(recipe: recipe)
         }
-        .sheet(isPresented: $showingShareSheet) {
-            ShareSheet(activityItems: shareItems)
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(activityItems: payload.items)
         }
         .sheet(isPresented: $showingAddCookLog) {
-            AddCookLogView(recipe: recipe)
+            CookLogFormView(recipe: recipe)
+        }
+        .sheet(item: $editingCookLog) { log in
+            CookLogFormView(recipe: recipe, editingLog: log)
+        }
+        .confirmationDialog(
+            "この作った記録を削除しますか？",
+            isPresented: deleteCookLogConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                if let log = cookLogToDelete {
+                    deleteCookLog(log)
+                }
+                cookLogToDelete = nil
+            }
+            Button("キャンセル", role: .cancel) {
+                cookLogToDelete = nil
+            }
         }
         .alert(item: $exportMessage) { message in
             Alert(
@@ -88,9 +106,30 @@ struct RecipeDetailView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .onAppear {
-            recipe.refreshDerivedFields()
+    }
+
+    private var deleteCookLogConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { cookLogToDelete != nil },
+            set: { isPresented in
+                if !isPresented {
+                    cookLogToDelete = nil
+                }
+            }
+        )
+    }
+
+    private func deleteCookLog(_ log: CookLog) {
+        // 画像ファイルはDB削除のコミット成功後に消す
+        let imageFileName = log.localImageFileName
+        modelContext.delete(log)
+        recipe.updatedAt = Date()
+        do {
+            try modelContext.save()
+        } catch {
+            return
         }
+        ImageStore.delete(fileName: imageFileName)
     }
 
     private var heroImage: some View {
@@ -265,7 +304,23 @@ struct RecipeDetailView: View {
                     EmptyDetailText("まだ作った記録がありません")
                 } else {
                     ForEach(recipe.cookLogs.sorted(by: { $0.cookedAt > $1.cookedAt })) { log in
-                        CookLogCard(log: log)
+                        CookLogCard(
+                            log: log,
+                            onEdit: { editingCookLog = log },
+                            onDelete: { cookLogToDelete = log }
+                        )
+                        .contextMenu {
+                            Button {
+                                editingCookLog = log
+                            } label: {
+                                Label("編集", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                cookLogToDelete = log
+                            } label: {
+                                Label("削除", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -312,8 +367,7 @@ struct RecipeDetailView: View {
         isExportingPDF = true
         do {
             let url = try RecipePDFExporter().exportSingle(recipe: recipe)
-            shareItems = [url]
-            showingShareSheet = true
+            sharePayload = SharePayload(items: [url])
         } catch {
             exportMessage = RecipeExportMessage(title: "PDFの作成に失敗しました。", detail: error.localizedDescription)
         }
@@ -328,6 +382,15 @@ private struct RecipeEditView: View {
 
     @Bindable var recipe: Recipe
     @State private var selectedPhoto: PhotosPickerItem?
+    // @Bindableでモデルへ直接書き込むため、キャンセル用に開いた時点の値を控えておく。
+    // onAppearではなくinitで取ることで、シート表示ごとに必ず新しい値が入る
+    @State private var snapshot: RecipeEditSnapshot
+    @State private var didCancel = false
+
+    init(recipe: Recipe) {
+        self.recipe = recipe
+        _snapshot = State(initialValue: RecipeEditSnapshot(recipe: recipe))
+    }
 
     private var frequentTags: [String] {
         let counts = Dictionary(grouping: recipes.flatMap(\.tags), by: { $0 })
@@ -339,6 +402,12 @@ private struct RecipeEditView: View {
     }
 
     var body: some View {
+        NavigationStack {
+            editForm
+        }
+    }
+
+    private var editForm: some View {
         Form {
             Section("代表画像") {
                 LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 16, contentMode: .fit)
@@ -428,14 +497,22 @@ private struct RecipeEditView: View {
         .navigationTitle("レシピを編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("キャンセル") {
+                    cancelAndDismiss()
+                }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完了") {
                     saveAndDismiss()
                 }
             }
         }
+        // シートのスワイプ閉じは従来どおり保存扱い
         .onDisappear {
-            save()
+            if !didCancel {
+                save()
+            }
         }
     }
 
@@ -454,11 +531,74 @@ private struct RecipeEditView: View {
         dismiss()
     }
 
+    private func cancelAndDismiss() {
+        didCancel = true
+        // この編集中に差し替えた代表画像は、キャンセルで参照が元に戻り
+        // どこからも参照されなくなるため、ファイルごと削除する
+        if let newFileName = recipe.localImageFileName, newFileName != snapshot.localImageFileName {
+            ImageStore.delete(fileName: newFileName)
+        }
+        snapshot.apply(to: recipe)
+        try? modelContext.save()
+        dismiss()
+    }
+
     private func save() {
         recipe.refreshDerivedFields()
         recipe.updatedAt = Date()
         try? modelContext.save()
     }
+}
+
+/// 編集開始時点のレシピの値。キャンセル時にモデルへ書き戻す
+private struct RecipeEditSnapshot {
+    var title: String
+    var summary: String
+    var sourceKindRaw: String
+    var ingredientLinesText: String
+    var instructionLinesText: String
+    var tagsText: String
+    var notes: String
+    var rawImportedText: String
+    var isFavorite: Bool
+    var wantsRemake: Bool
+    var rating: Int
+    var localImageFileName: String?
+
+    init(recipe: Recipe) {
+        title = recipe.title
+        summary = recipe.summary
+        sourceKindRaw = recipe.sourceKindRaw
+        ingredientLinesText = recipe.ingredientLinesText
+        instructionLinesText = recipe.instructionLinesText
+        tagsText = recipe.tagsText
+        notes = recipe.notes
+        rawImportedText = recipe.rawImportedText
+        isFavorite = recipe.isFavorite
+        wantsRemake = recipe.wantsRemake
+        rating = recipe.rating
+        localImageFileName = recipe.localImageFileName
+    }
+
+    func apply(to recipe: Recipe) {
+        recipe.title = title
+        recipe.summary = summary
+        recipe.sourceKindRaw = sourceKindRaw
+        recipe.ingredientLinesText = ingredientLinesText
+        recipe.instructionLinesText = instructionLinesText
+        recipe.tagsText = tagsText
+        recipe.notes = notes
+        recipe.rawImportedText = rawImportedText
+        recipe.isFavorite = isFavorite
+        recipe.wantsRemake = wantsRemake
+        recipe.rating = rating
+        recipe.localImageFileName = localImageFileName
+    }
+}
+
+private struct SharePayload: Identifiable {
+    let id = UUID()
+    var items: [Any]
 }
 
 private struct DetailSection<Content: View>: View {
@@ -523,11 +663,13 @@ private struct FlowTags: View {
 
 private struct CookLogCard: View {
     let log: CookLog
+    var onEdit: () -> Void = {}
+    var onDelete: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                LocalImageView(fileName: log.localImageFileName, cornerRadius: 10, contentMode: .fill)
+                LocalImageView(fileName: log.localImageFileName, cornerRadius: 10, contentMode: .fill, maxPixelLength: 300)
                     .frame(width: 72, height: 72)
                     .clipped()
 
@@ -539,6 +681,26 @@ private struct CookLogCard: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Spacer(minLength: 0)
+
+                Menu {
+                    Button {
+                        onEdit()
+                    } label: {
+                        Label("編集", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .padding(4)
                 }
             }
 
@@ -573,18 +735,31 @@ private struct LabeledCookLogText: View {
     }
 }
 
-private struct AddCookLogView: View {
+/// 作った記録の追加・編集フォーム。editingLogがnilなら新規追加、指定されていればその記録を編集する
+private struct CookLogFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     @Bindable var recipe: Recipe
+    let editingLog: CookLog?
+
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedImageData: Data?
-    @State private var memo = ""
-    @State private var improvementMemo = ""
-    @State private var arrangementMemo = ""
-    @State private var cookedAt = Date()
-    @State private var rating = 0
+    @State private var memo: String
+    @State private var improvementMemo: String
+    @State private var arrangementMemo: String
+    @State private var cookedAt: Date
+    @State private var rating: Int
+
+    init(recipe: Recipe, editingLog: CookLog? = nil) {
+        self.recipe = recipe
+        self.editingLog = editingLog
+        _memo = State(initialValue: editingLog?.memo ?? "")
+        _improvementMemo = State(initialValue: editingLog?.improvementMemo ?? "")
+        _arrangementMemo = State(initialValue: editingLog?.arrangementMemo ?? "")
+        _cookedAt = State(initialValue: editingLog?.cookedAt ?? Date())
+        _rating = State(initialValue: editingLog?.rating ?? 0)
+    }
 
     var body: some View {
         NavigationStack {
@@ -597,10 +772,14 @@ private struct AddCookLogView: View {
                             .frame(maxHeight: 220)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .listRowInsets(EdgeInsets())
+                    } else if editingLog?.localImageFileName != nil {
+                        LocalImageView(fileName: editingLog?.localImageFileName, cornerRadius: 16, contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: 220)
+                            .listRowInsets(EdgeInsets())
                     }
 
                     PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Label("写真を選ぶ", systemImage: "photo")
+                        Label(editingLog == nil ? "写真を選ぶ" : "写真を変更", systemImage: "photo")
                     }
                     .onChange(of: selectedPhoto) { _, newItem in
                         Task {
@@ -624,7 +803,7 @@ private struct AddCookLogView: View {
                         .lineLimit(2...6)
                 }
             }
-            .navigationTitle("作った記録")
+            .navigationTitle(editingLog == nil ? "作った記録" : "記録を編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -638,22 +817,38 @@ private struct AddCookLogView: View {
     }
 
     private func save() {
-        let fileName = selectedImageData.flatMap { try? ImageStore.save(data: $0) }
-        let log = CookLog(
-            cookedAt: cookedAt,
-            memo: memo,
-            localImageFileName: fileName,
-            rating: rating,
-            improvementMemo: improvementMemo,
-            arrangementMemo: arrangementMemo,
-            recipe: recipe
-        )
-        modelContext.insert(log)
+        // 差し替えで参照されなくなる旧画像。削除はDBコミット成功後に行う
+        var replacedImageFileName: String?
+        if let editingLog {
+            if let selectedImageData, let fileName = try? ImageStore.save(data: selectedImageData) {
+                replacedImageFileName = editingLog.localImageFileName
+                editingLog.localImageFileName = fileName
+            }
+            editingLog.cookedAt = cookedAt
+            editingLog.memo = memo
+            editingLog.rating = rating
+            editingLog.improvementMemo = improvementMemo
+            editingLog.arrangementMemo = arrangementMemo
+        } else {
+            let fileName = selectedImageData.flatMap { try? ImageStore.save(data: $0) }
+            let log = CookLog(
+                cookedAt: cookedAt,
+                memo: memo,
+                localImageFileName: fileName,
+                rating: rating,
+                improvementMemo: improvementMemo,
+                arrangementMemo: arrangementMemo,
+                recipe: recipe
+            )
+            modelContext.insert(log)
+        }
         recipe.updatedAt = Date()
         if rating > recipe.rating {
             recipe.rating = rating
         }
-        try? modelContext.save()
+        if (try? modelContext.save()) != nil {
+            ImageStore.delete(fileName: replacedImageFileName)
+        }
         dismiss()
     }
 }
