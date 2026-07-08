@@ -111,7 +111,30 @@ struct RecipeImportDiagnostics {
     }
 }
 
+// 正規化で末尾スラッシュを落としたURL等に対し、httpへ301するサイトがある
+// (例: kikkoman.co.jp)。ATSに弾かれる前にリダイレクト先をhttpsへ昇格させる
+private final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        var request = request
+        if let url = request.url,
+           url.scheme == "http",
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.scheme = "https"
+            request.url = components.url ?? url
+        }
+        completionHandler(request)
+    }
+}
+
 final class RecipeImporter {
+    private static let redirectDelegate = HTTPSUpgradingRedirectDelegate()
+
     private struct YouTubeOEmbed {
         var title: String?
         var thumbnailURL: URL?
@@ -258,7 +281,7 @@ final class RecipeImporter {
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
         request.setValue("ja,en-US;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: Self.redirectDelegate)
         let http = response as? HTTPURLResponse
         let html = String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .shiftJIS)
@@ -365,9 +388,14 @@ final class RecipeImporter {
             return ExtractionPlan(recipeCandidateText: description, extractorInputText: description, extractionSource: "youtubeDescription")
         }
 
+        // JSON-LDがサーバ側の文字コードバグで「?」だらけになっているサイトがあるため、
+        // 本文らしい文字を含む行が過半数のときだけJSON-LDを採用し、
+        // 壊れている場合はHTML本文からの抽出にフォールバックする
         if let recipe = bestJSONLDRecipe(from: jsonLDRecipes),
            recipe.ingredients.count >= 2,
-           !recipe.instructions.isEmpty {
+           !recipe.instructions.isEmpty,
+           jsonLDLinesLookUsable(recipe.ingredients),
+           jsonLDLinesLookUsable(recipe.instructions) {
             let text = structuredRecipeText(from: recipe)
             return ExtractionPlan(recipeCandidateText: text, extractorInputText: text, extractionSource: "jsonLD")
         }
@@ -379,6 +407,18 @@ final class RecipeImporter {
 
         if let candidate = articleCandidateText(fromHTML: html), !candidate.isEmpty {
             return ExtractionPlan(recipeCandidateText: candidate, extractorInputText: candidate, extractionSource: "articleCandidate")
+        }
+
+        // HTMLブロック単位で候補が取れなかった場合の最終フォールバック。
+        // 可視テキスト全体から材料/作り方見出し起点で絞り込み、
+        // レシピらしさ(見出し+分量or手順番号)を満たすときだけ採用する
+        let focusedVisible = focusedRecipeText(fromVisibleText: visibleText)
+        if recipeTextLooksUsable(focusedVisible) {
+            return ExtractionPlan(
+                recipeCandidateText: focusedVisible,
+                extractorInputText: focusedVisible,
+                extractionSource: "visibleTextFocused"
+            )
         }
 
         return ExtractionPlan(
@@ -427,10 +467,14 @@ final class RecipeImporter {
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted { $0.score > $1.score }
 
-        guard let best = scored.first, best.score > 0, recipeTextLooksUsable(best.text) else {
-            return nil
+        // 最高スコアのブロックがネストしたdivの途中で切れている場合があるため、
+        // 使える本文が得られる候補までスコア順に試す
+        for candidate in scored where candidate.score > 0 {
+            if recipeTextLooksUsable(candidate.text) {
+                return candidate.text
+            }
         }
-        return best.text
+        return nil
     }
 
     private nonisolated static func sanitizedRecipeHTML(_ html: String) -> String {
@@ -516,11 +560,18 @@ final class RecipeImporter {
     }
 
     private nonisolated static func isIngredientHeadingLine(_ line: String) -> Bool {
-        line.range(of: #"^(材料|ingredients)(?:$|[\s:：\(（])"#, options: [.regularExpression, .caseInsensitive]) != nil
+        // 「🍳材料」「≪材料≫」「■材料」のような飾り付き見出しも開始行として認める
+        line.range(
+            of: #"^[\p{So}\p{Sk}\p{P}\p{Sm}\s\\]*(?:材料|ingredients)(?:はこちら|はこれ)?(?:$|[^\p{L}\p{N}])"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     private nonisolated static func isInstructionHeadingLine(_ line: String) -> Bool {
-        line.range(of: #"^(作り方|作りかた|つくり方|手順|instructions)(?:$|[\s:：\(（])"#, options: [.regularExpression, .caseInsensitive]) != nil
+        line.range(
+            of: #"^[\p{So}\p{Sk}\p{P}\p{Sm}\s\\]*(?:作り方|作りかた|つくり方|手順|instructions|directions|method)(?:$|[^\p{L}\p{N}])"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     private nonisolated static func isHardStopLine(_ line: String) -> Bool {
@@ -528,7 +579,8 @@ final class RecipeImporter {
         let stops = [
             "関連記事", "記事一覧", "著者紹介", "著者", "バックナンバー", "mail magazine",
             "topics", "お問い合わせ", "コメント", "sns", "instagram", "facebook", "twitter",
-            "おすすめ", "ランキング", "プロフィール", "メールマガジン"
+            "おすすめ", "ランキング", "プロフィール", "メールマガジン",
+            "栄養成分", "基準重量", "使われている商品"
         ]
         return stops.contains { lower.contains($0) }
     }
@@ -550,7 +602,9 @@ final class RecipeImporter {
     private nonisolated static func recipeTextLooksUsable(_ text: String) -> Bool {
         let lower = text.lowercased()
         let hasIngredients = lower.contains("材料") || lower.contains("ingredients")
-        let hasInstructions = lower.contains("作り方") || lower.contains("作りかた") || lower.contains("手順") || lower.contains("instructions")
+        let hasInstructions = lower.contains("作り方") || lower.contains("作りかた")
+            || lower.contains("つくり方") || lower.contains("つくりかた")
+            || lower.contains("手順") || lower.contains("instructions")
         let hasQuantity = text.range(of: #"[0-9０-９./]+\s*(g|kg|ml|cc|l|L|個|本|枚|大さじ|小さじ|カップ)|少々|適量"#, options: .regularExpression) != nil
         let hasStep = text.range(of: #"(\([0-9０-９]+\)|（[0-9０-９]+）|[0-9０-９]+[\.)）．。])"#, options: .regularExpression) != nil
         return hasIngredients && hasInstructions && (hasQuantity || hasStep)
@@ -560,7 +614,9 @@ final class RecipeImporter {
         let lower = text.lowercased()
         var score = 0
         if lower.contains("材料") || lower.contains("ingredients") { score += 20 }
-        if lower.contains("作り方") || lower.contains("作りかた") || lower.contains("手順") || lower.contains("instructions") { score += 20 }
+        if lower.contains("作り方") || lower.contains("作りかた")
+            || lower.contains("つくり方") || lower.contains("つくりかた")
+            || lower.contains("手順") || lower.contains("instructions") { score += 20 }
         score += min(matches(pattern: #"[0-9０-９./]+\s*(g|kg|ml|cc|l|L|個|本|枚|大さじ|小さじ|カップ)|少々|適量"#, in: text).count, 12)
         score += min(matches(pattern: #"(\([0-9０-９]+\)|（[0-9０-９]+）|[0-9０-９]+[\.)）．。])"#, in: text).count, 12)
         let penalties = ["関連記事", "記事一覧", "著者紹介", "バックナンバー", "mail magazine", "topics", "お問い合わせ", "sns", "facebook", "twitter", "instagram"]
@@ -572,6 +628,16 @@ final class RecipeImporter {
         recipes.max { lhs, rhs in
             scoreJSONLDRecipe(lhs) < scoreJSONLDRecipe(rhs)
         }
+    }
+
+    // 記号・数字・空白を除いて文字が残る行(=本文らしい行)が過半数かどうか。
+    // 「???????」「2. ????」のような文字化け行だけのリストを弾く
+    nonisolated static func jsonLDLinesLookUsable(_ lines: [String]) -> Bool {
+        guard !lines.isEmpty else { return false }
+        let usableCount = lines.filter { line in
+            line.range(of: #"\p{L}"#, options: .regularExpression) != nil
+        }.count
+        return usableCount * 2 >= lines.count
     }
 
     private nonisolated static func scoreJSONLDRecipe(_ recipe: JSONLDRecipe) -> Int {
@@ -640,7 +706,7 @@ final class RecipeImporter {
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
         request.setValue("ja,en-US;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: Self.redirectDelegate)
         if let http = response as? HTTPURLResponse, !(200..<400).contains(http.statusCode) {
             throw ImportError.emptyResponse
         }
@@ -1092,7 +1158,7 @@ final class RecipeImportService {
                 httpStatusCode: nil,
                 contentType: nil,
                 importerType: sourceKind.rawValue,
-                warnings: ["ページ本文を取得できませんでした。必要に応じて手動で入力してください。"]
+                warnings: ["ページ本文を取得できませんでした（\(error.localizedDescription)）。必要に応じて手動で入力してください。"]
             )
         }
 

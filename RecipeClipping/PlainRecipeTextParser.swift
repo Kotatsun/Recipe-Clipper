@@ -129,7 +129,7 @@ final class PlainRecipeTextParser {
                 options: [.regularExpression, .caseInsensitive]
             )
             .replacingOccurrences(
-                of: #"(?<!^)(?<!\n)(?=\s*(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
+                of: #"(?<!^)(?<!\n)(?=\s*(?:【[0-9０-９]+】(?![にをでへと])|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+|[0-9０-９]+[\.)）．。](?![0-9０-９])))"#,
                 with: "\n",
                 options: .regularExpression
             )
@@ -151,7 +151,7 @@ final class PlainRecipeTextParser {
                 options: .regularExpression
             )
             .replacingOccurrences(
-                of: #"(?<=。|！|!|？|\?)\s+(?=(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|[0-9０-９]+[\.)）．。]))"#,
+                of: #"(?<=。|！|!|？|\?)\s+(?=(?:【[0-9０-９]+】(?![にをでへと])|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿](?![にをでへと])|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+|[0-9０-９]+[\.)）．。](?![0-9０-９])))"#,
                 with: "\n",
                 options: .regularExpression
             )
@@ -413,7 +413,7 @@ final class PlainRecipeTextParser {
 
     private nonisolated static func hasQuantityExpression(_ line: String) -> Bool {
         line.range(
-            of: #"([0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合)|(?:大さじ|小さじ|大|小)\s*[0-9０-９]+(?:[./／][0-9０-９]+)?|少々|適量|好きな量|ひとつまみ|ひとかけ)"#,
+            of: #"([0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合|丁|玉|尾|房|人前|カップ|tbsp|tsp|tablespoons?|teaspoons?|cups?|ounces?|oz|pounds?|lbs?)|(?:大さじ|小さじ|大|小)\s*[0-9０-９]+(?:[./／][0-9０-９]+)?|少々|適量|好きな量|ひとつまみ|ひとかけ)"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
@@ -421,8 +421,11 @@ final class PlainRecipeTextParser {
     private nonisolated static func looksLikeIngredientNameOnly(_ line: String) -> Bool {
         let stripped = stripIngredientMarker(line)
         let valueForCheck = startsWithStepMarker(stripped) ? stripStepMarker(stripped) : stripped
-        return valueForCheck.count >= 2
+        // 「塩」「酒」など1文字の材料名があるため最小1文字まで許容する。
+        // ただし「【」などの記号のみの行は除外する
+        return valueForCheck.count >= 1
             && valueForCheck.count <= 36
+            && valueForCheck.range(of: #"[\p{L}\p{N}]"#, options: .regularExpression) != nil
             && !hasQuantityExpression(valueForCheck)
             && !looksLikeQuantityOnly(valueForCheck)
             && !looksLikeInstruction(valueForCheck)
@@ -432,7 +435,7 @@ final class PlainRecipeTextParser {
 
     private nonisolated static func looksLikeQuantityOnly(_ line: String) -> Bool {
         stripIngredientMarker(line).range(
-            of: #"^(約)?[0-9０-９]+(?:[./／][0-9０-９]+)?\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合)$|^(少々|適量|好きな量|ひとつまみ|ひとかけ)$"#,
+            of: #"^(約|各)?[小大]?[0-9０-９]+(?:[./／・と][0-9０-９]+)*\s*(?:g|ｇ|グラム|kg|ｋｇ|キロ|ml|ｍｌ|cc|ｃｃ|cm|ｃｍ|l|L|Ｌ|個|こ|本|枚|杯|大さじ|小さじ|パック|缶|袋|束|株|柵|切れ|かけ|片|粒|合|丁|玉|尾|房|人前|カップ|tbsp|tsp|tablespoons?|teaspoons?|cups?|ounces?|oz|pounds?|lbs?)(?:（[^）]*）|\([^)]*\))?$|^(?:大さじ|小さじ)\s*[0-9０-９]+(?:[./／・と][0-9０-９]+)*$|^(少々|適量|好きな量|ひとつまみ|ひとかけ)$"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
@@ -451,7 +454,7 @@ final class PlainRecipeTextParser {
     }
 
     private nonisolated static func isStandaloneStepNumber(_ line: String) -> Bool {
-        stripBullet(line).range(of: #"^(?:\(?[0-9０-９]+\)?|（[0-9０-９]+）|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3)[\.)）．。]?$"#, options: .regularExpression) != nil
+        stripBullet(line).range(of: #"^(?:\(?[0-9０-９]+\)?|（[0-9０-９]+）|【[0-9０-９]+】|\[[0-9０-９]+\]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+)[\.)）:：．。]?$"#, options: .regularExpression) != nil
     }
 
     private nonisolated static func startsWithStepMarker(_ line: String) -> Bool {
@@ -459,7 +462,7 @@ final class PlainRecipeTextParser {
     }
 
     private nonisolated static var stepMarkerPattern: String {
-        #"^(?:\([0-9０-９]+\)|（[0-9０-９]+）|[0-9０-９]+[\.)）．。]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3)\s*"#
+        #"^(?:\([0-9０-９]+\)|（[0-9０-９]+）|【[0-9０-９]+】(?![にをでへと])|\[[0-9０-９]+\](?![にをでへと])|[0-9０-９]+[\.)）．。](?![0-9０-９])|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+[\.)）:：．。]?)\s*"#
     }
 
     private nonisolated static func isNoiseLine(_ line: String) -> Bool {
