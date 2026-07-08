@@ -57,6 +57,33 @@ final class RecipeTextExtractorTests: XCTestCase {
             expectedFailureMode: "AJINOMOTO PARKのJSON-LD recipeIngredient / recipeInstructionsを優先し、手順内のbrタグを混ぜない"
         ),
         ImportFixtureExpectation(
+            sourceURL: "https://www.sbfoods.co.jp/recipe/detail/10727.html",
+            fixtureFileName: "sbfoods_nasu_jaga_sabji.html",
+            importerType: "web",
+            expectedTitle: "なすとじゃがいものサブジ",
+            expectedIngredientsCount: 10,
+            expectedInstructionsCount: 3,
+            expectedFailureMode: "材料名と分量が別行(小1個・大さじ1・1/2形式)でも結合し、【１】形式の手順を抽出してmemo・栄養成分・ナビの「レシピ」を混ぜない"
+        ),
+        ImportFixtureExpectation(
+            sourceURL: "https://chiccafood.com/strawberry-tiramisu/",
+            fixtureFileName: "chiccafood_strawberry_tiramisu.html",
+            importerType: "web",
+            expectedTitle: "いちごティラミス",
+            expectedIngredientsCount: 7,
+            expectedInstructionsCount: 14,
+            expectedFailureMode: "JSON-LDの手順がサーバ側で「?」に文字化けしているため、JSON-LDを棄却しHTML本文から手順を抽出する"
+        ),
+        ImportFixtureExpectation(
+            sourceURL: "https://www.kikkoman.co.jp/homecook/search/recipe/00055583/",
+            fixtureFileName: "kikkoman_biryani.html",
+            importerType: "web",
+            expectedTitle: "炊飯器でつくるビリヤニ",
+            expectedIngredientsCount: 16,
+            expectedInstructionsCount: 6,
+            expectedFailureMode: "JSON-LD recipeIngredient / HowToStepを採用し、「つくり方」見出しのHTML本文もフォールバックとして機能する"
+        ),
+        ImportFixtureExpectation(
             sourceURL: "https://www.instagram.com/reel/DYhGkdGIN8b/",
             fixtureFileName: "instagram_dyh_caption_unavailable.html",
             importerType: "instagram",
@@ -901,6 +928,231 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertTrue(result.instructions.isEmpty)
         XCTAssertTrue(result.confidence < 0.3)
         XCTAssertTrue(result.warnings.count > 0)
+    }
+
+    // MARK: - フォールバック強化(飾り付き見出し・見出しなし・STEPマーカー・単位辞書)
+
+    func testExtractorRecognizesDecoratedHeadings() throws {
+        let text = """
+        ふわとろ親子丼
+
+        🍳材料（2人分）
+        ・鶏もも肉 200g
+        ・玉ねぎ 1/2個
+        ・卵 3個
+        ・めんつゆ 大さじ3
+
+        ≪作り方≫
+        1. 鶏肉と玉ねぎを切る
+        2. めんつゆで煮る
+        3. 溶き卵を回し入れて蒸らす
+        """
+        let result = extractor.extract(from: text)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("鶏もも肉") && $0.contains("200g") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("めんつゆ") }, debug(result))
+        XCTAssertFalse(result.ingredients.contains { $0.contains("切る") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 3, debug(result))
+        XCTAssertTrue(result.instructions[2].contains("蒸らす"), debug(result))
+    }
+
+    func testExtractorScoredFallbackWithoutHeadings() throws {
+        let text = """
+        自家製バターチキンカレー
+
+        鶏もも肉 400g
+        バター 30g
+        トマト缶 1缶
+        生クリーム 100ml
+
+        1. 鶏肉をヨーグルトに漬け込む
+        2. バターで玉ねぎを炒める
+        3. トマト缶と生クリームを加えて煮る
+        """
+        let result = extractor.extract(from: text)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("鶏もも肉") && $0.contains("400g") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("生クリーム") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 3, debug(result))
+        XCTAssertTrue(result.instructions[0].contains("漬け込む"), debug(result))
+    }
+
+    func testExtractorScoredFallbackDoesNotInventFromProse() throws {
+        let text = """
+        今日は近所の公園まで散歩に行きました。
+        天気がよくて気持ちよかったです。
+        帰りにカフェでコーヒーを飲みながら本を読みました。
+        また明日も行きたいと思います。
+        """
+        let result = extractor.extract(from: text)
+
+        XCTAssertTrue(result.ingredients.isEmpty, debug(result))
+        XCTAssertTrue(result.instructions.isEmpty, debug(result))
+    }
+
+    func testExtractorEnglishRecipeUnits() throws {
+        let text = """
+        Classic Pancakes
+
+        Ingredients
+        2 cups flour
+        2 tbsp sugar
+        1 tsp baking powder
+        300 ml milk
+
+        Instructions
+        1. Mix the dry ingredients.
+        2. Add milk and whisk well.
+        3. Cook on a hot pan.
+        """
+        let result = extractor.extract(from: text)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("2 cups flour") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("1 tsp baking powder") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 3, debug(result))
+    }
+
+    func testPlainParserInstagramStepPrefixedCaption() throws {
+        let text = """
+        やみつき無限なす
+
+        【材料】
+        なす 3本
+        ごま油 大さじ2
+        ポン酢 大さじ3
+
+        【作り方】
+        STEP1 なすを乱切りにする
+        STEP2 ごま油で焼き色がつくまで焼く
+        STEP3 ポン酢をからめて完成
+
+        保存してね
+        #簡単レシピ #なす
+        """
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("なす") && $0.contains("3本") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 3, debug(result))
+        XCTAssertTrue(result.instructions[0].contains("乱切り"), debug(result))
+        XCTAssertFalse(result.instructions.contains { $0.contains("保存して") }, debug(result))
+    }
+
+    func testPlainParserKeycapTenStepMarker() throws {
+        let text = """
+        本格ラザニア
+
+        【材料】
+        ラザニア用パスタ 6枚
+        合いびき肉 300g
+        トマト缶 1缶
+
+        【作り方】
+        8️⃣ ミートソースとホワイトソースを重ねる
+        9️⃣ チーズをのせる
+        🔟 オーブンで焼いて完成
+        """
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("合いびき肉") && $0.contains("300g") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 3, debug(result))
+        XCTAssertTrue(result.instructions[2].contains("完成"), debug(result))
+    }
+
+    func testPlainParserNewQuantityUnits() throws {
+        let text = """
+        あったか寄せ鍋
+
+        【材料】
+        豆腐 1丁
+        キャベツ 1/2玉
+        えび 4尾
+        ブロッコリー 1房
+        うどん 2人前
+        だし汁 2カップ
+
+        【作り方】
+        ① 具材を食べやすく切る
+        ② だし汁で煮る
+        """
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertTrue(result.ingredients.contains { $0.contains("豆腐") && $0.contains("1丁") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("キャベツ") && $0.contains("1/2玉") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("えび") && $0.contains("4尾") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("ブロッコリー") && $0.contains("1房") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("うどん") && $0.contains("2人前") }, debug(result))
+        XCTAssertTrue(result.ingredients.contains { $0.contains("だし汁") && $0.contains("2カップ") }, debug(result))
+        XCTAssertEqual(result.instructions.count, 2, debug(result))
+    }
+
+    func testSBFoodsSabjiSplitNameQuantityAndBracketSteps() throws {
+        let draft = try makeDraftFromFixture("sbfoods_nasu_jaga_sabji", ext: "html")
+
+        XCTAssertTrue(draft.title.contains("サブジ"), debug(draft))
+        XCTAssertEqual(draft.ingredientLines.count, 10, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("じゃがいも") && $0.contains("小1個") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("サラダ油") && $0.contains("大さじ1・1/2") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("塩") && $0.contains("小さじ1/4") }, debug(draft))
+        XCTAssertFalse(draft.ingredientLines.contains { $0 == "小さじ1/4" }, debug(draft))
+        XCTAssertEqual(draft.instructionLines.count, 3, debug(draft))
+        XCTAssertTrue(draft.instructionLines[0].contains("角切り"), debug(draft))
+        XCTAssertTrue(draft.instructionLines[1].contains("蒸し煮"), debug(draft))
+        XCTAssertFalse(draft.instructionLines.contains { $0.contains("kcal") || $0.contains("焦がさない") }, debug(draft))
+    }
+
+    func testChiccaFoodGarbledJSONLDFallsBackToHTMLInstructions() throws {
+        let draft = try makeDraftFromFixture("chiccafood_strawberry_tiramisu", ext: "html")
+
+        // JSON-LDの手順は「?」に文字化けしているため棄却し、HTML本文から抽出する
+        XCTAssertNotEqual(draft.importDiagnostics?.extractionSource, "jsonLD", debug(draft))
+        XCTAssertFalse(draft.instructionLines.contains { $0.contains("???") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("卵") && $0.contains("2個") }, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("マスカルポーネ") && $0.contains("250g") }, debug(draft))
+        XCTAssertTrue(draft.instructionLines.contains { $0.contains("卵黄") && $0.contains("泡立て") }, debug(draft))
+        XCTAssertTrue(draft.instructionLines.contains { $0.contains("茶こし") }, debug(draft))
+        XCTAssertGreaterThanOrEqual(draft.instructionLines.count, 14, debug(draft))
+    }
+
+    func testKikkomanBiryaniUsesJSONLD() throws {
+        let draft = try makeDraftFromFixture("kikkoman_biryani", ext: "html")
+
+        XCTAssertEqual(draft.importDiagnostics?.extractionSource, "jsonLD", debug(draft))
+        XCTAssertEqual(draft.ingredientLines.count, 16, debug(draft))
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("バスマティ") && $0.contains("250g") }, debug(draft))
+        XCTAssertEqual(draft.instructionLines.count, 6, debug(draft))
+        XCTAssertTrue(draft.instructionLines[0].contains("浸水"), debug(draft))
+        XCTAssertTrue(draft.instructionLines[5].contains("パクチー"), debug(draft))
+    }
+
+    func testJSONLDLinesLookUsableRejectsGarbledLines() {
+        XCTAssertFalse(RecipeImporter.jsonLDLinesLookUsable(["???????", "2. ????", "?????3. ??"]))
+        XCTAssertTrue(RecipeImporter.jsonLDLinesLookUsable(["バスマティライスは洗って浸水させる。", "炊けたら器に盛る。"]))
+        XCTAssertTrue(RecipeImporter.jsonLDLinesLookUsable(["Mix the flour and butter.", "Bake for 20 minutes."]))
+        XCTAssertFalse(RecipeImporter.jsonLDLinesLookUsable([]))
+    }
+
+    func testWebPageWithDecoratedHeadingsAndNestedDivs() throws {
+        let html = """
+        <html><head><title>ねぎ塩チキン | 新しい料理ブログ</title>
+        <meta property="og:title" content="ねぎ塩チキン" />
+        </head><body>
+        <div class="site-header">新しい料理ブログ</div>
+        <div class="post-content">
+          <div class="ad-unit">広告</div>
+          <h1>ねぎ塩チキン</h1>
+          <p>🍳材料（2人分）</p>
+          <ul><li>鶏もも肉 300g</li><li>長ねぎ 1本</li><li>ごま油 大さじ1</li><li>塩 小さじ1/2</li></ul>
+          <p>≪作り方≫</p>
+          <ol><li>鶏肉を一口大に切る</li><li>フライパンで焼き色がつくまで焼く</li><li>刻んだねぎと塩ごま油を和える</li></ol>
+        </div>
+        </body></html>
+        """
+        let draft = try makeDraft(html: html, inputURL: URL(string: "https://example.com/negi-shio-chicken")!)
+
+        XCTAssertTrue(draft.ingredientLines.contains { $0.contains("鶏もも肉") && $0.contains("300g") }, debug(draft))
+        XCTAssertFalse(draft.ingredientLines.contains { $0.contains("広告") }, debug(draft))
+        XCTAssertEqual(draft.instructionLines.count, 3, debug(draft))
+        XCTAssertTrue(draft.instructionLines[1].contains("焼き色"), debug(draft))
     }
 
     private func extract(_ name: String, ext: String) throws -> ExtractedRecipeText {

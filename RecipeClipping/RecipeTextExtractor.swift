@@ -90,13 +90,21 @@ final class RecipeTextExtractor {
             extracted.summary = summary
         }
 
+        // 文字化け等でJSON-LDのクリーニング結果が空になった場合は、
+        // テキスト抽出の結果を上書きしない
         if let recipe, !recipe.ingredients.isEmpty {
-            extracted.ingredients = Self.cleanedJSONLDLines(recipe.ingredients)
-            extracted.ingredientSource = "jsonld"
+            let cleaned = Self.cleanedJSONLDLines(recipe.ingredients)
+            if !cleaned.isEmpty {
+                extracted.ingredients = cleaned
+                extracted.ingredientSource = "jsonld"
+            }
         }
         if let recipe, !recipe.instructions.isEmpty {
-            extracted.instructions = Self.cleanedJSONLDLines(recipe.instructions)
-            extracted.instructionSource = "jsonld"
+            let cleaned = Self.cleanedJSONLDLines(recipe.instructions)
+            if !cleaned.isEmpty {
+                extracted.instructions = cleaned
+                extracted.instructionSource = "jsonld"
+            }
         }
 
         extracted.warnings.removeAll()
@@ -231,46 +239,169 @@ final class RecipeTextExtractor {
     }
 
     private nonisolated func extractIngredients(from lines: [String]) -> (lines: [String], source: String) {
-        if let section = sectionLines(in: lines, starts: Self.ingredientHeadings, ends: Self.ingredientEndHeadings) {
+        // ナビゲーション等の偽見出しを掴まないよう、全ての見出し候補から
+        // 最も多く材料が取れたセクションを採用する
+        var best: [String] = []
+        for section in sectionCandidates(in: lines, starts: Self.ingredientHeadings, ends: Self.ingredientEndHeadings) {
             let cleaned = Self.unique(Self.normalizedIngredientLines(from: section))
-            if !cleaned.isEmpty {
-                return (cleaned, "section")
+            if cleaned.count > best.count {
+                best = cleaned
             }
+        }
+        if !best.isEmpty {
+            return (best, "section")
+        }
+
+        // 見出しが見つからない/見出し直下が空のページ向けフォールバック。
+        // 分量表現を持つ行が2行以上ある場合のみ採用し、非レシピページからの誤検出を防ぐ
+        let scored = Self.scoredIngredientLines(from: lines)
+        if scored.count >= 2 {
+            return (scored, "scored")
         }
 
         return ([], "none")
     }
 
     private nonisolated func extractInstructions(from lines: [String]) -> (lines: [String], source: String, foundHeading: Bool) {
-        if let section = sectionLines(in: lines, starts: Self.instructionHeadings, ends: Self.instructionEndHeadings) {
-            let cleaned = Self.instructionsFromSection(section)
-            if !cleaned.isEmpty {
-                return (cleaned, "section", true)
+        let candidates = sectionCandidates(in: lines, starts: Self.instructionHeadings, ends: Self.instructionEndHeadings)
+        var best: [String] = []
+        var bestScore = Int.min
+        for section in candidates {
+            let cleaned = Self.trimmedInstructionTail(Self.instructionsFromSection(section))
+            guard !cleaned.isEmpty else { continue }
+            // 「手順らしい行」を+1、それ以外を-1で採点する。
+            // ナビや本文全体を巻き込んだ巨大な偽セクションは雑多な行のぶん
+            // 大きくマイナスになり、本物の作り方セクションが勝つ
+            let score = cleaned.reduce(0) { partial, line in
+                partial + (Self.scoresAsInstruction(line) ? 1 : -1)
             }
+            if score > bestScore {
+                best = cleaned
+                bestScore = score
+            }
+        }
+        if !best.isEmpty {
+            return (best, "section", true)
+        }
+        if !candidates.isEmpty {
             return ([], "section", true)
+        }
+
+        let scored = Self.scoredInstructionLines(from: lines)
+        if scored.count >= 2 {
+            return (scored, "scored", false)
         }
 
         return ([], "none", false)
     }
 
-    private nonisolated func sectionLines(in lines: [String], starts: [String], ends: [String]) -> [String]? {
-        guard let startIndex = lines.firstIndex(where: { Self.matchesHeading($0, headings: starts) }) else {
-            return nil
-        }
+    // 採点・末尾トリム用の手順らしさ判定。動詞リストに加えて、
+    // 「〜ます。」「〜ください。」等のです・ます調の指示文も手順とみなす
+    // (過去形「〜ました。」のブログ文は含めない)
+    private nonisolated static func scoresAsInstruction(_ line: String) -> Bool {
+        if looksLikeInstruction(line) { return true }
+        guard line.count >= 8, line.count <= 220 else { return false }
+        return line.range(of: #"(ます|ましょう|ください)[。.!！]?$"#, options: .regularExpression) != nil
+    }
 
-        var section: [String] = []
-        if let remainder = Self.headingRemainder(in: lines[startIndex], headings: starts),
-           !remainder.isEmpty,
-           !Self.isNoiseLine(remainder) {
-            section.append(remainder)
+    // 手順セクションの末尾に続く関連レシピ・メタ情報を切り落とす。
+    // 手順らしくない行が3行連続したらそこでセクション終了とみなす。
+    // 調理動詞をほとんど含まないセクション(英語レシピ等)には適用しない
+    private nonisolated static func trimmedInstructionTail(_ lines: [String]) -> [String] {
+        let verbLineCount = lines.filter { scoresAsInstruction($0) }.count
+        guard verbLineCount >= 2 else { return lines }
+
+        var result: [String] = []
+        var pendingNonStep: [String] = []
+        for line in lines {
+            if scoresAsInstruction(line) {
+                result.append(contentsOf: pendingNonStep)
+                pendingNonStep.removeAll()
+                result.append(line)
+            } else {
+                pendingNonStep.append(line)
+                if pendingNonStep.count >= 3 {
+                    return result
+                }
+            }
         }
-        for line in lines.dropFirst(startIndex + 1) {
-            if Self.matchesHeading(line, headings: ends) {
+        result.append(contentsOf: pendingNonStep)
+        return result
+    }
+
+    // 「材料」「作り方」に見える行が複数あるページ(ナビ・パンくず等)向けに、
+    // 各見出し位置から次の終了見出しまでを全てセクション候補として返す
+    private nonisolated func sectionCandidates(in lines: [String], starts: [String], ends: [String]) -> [[String]] {
+        var candidates: [[String]] = []
+        for (index, line) in lines.enumerated() where Self.matchesHeading(line, headings: starts) {
+            var section: [String] = []
+            if let remainder = Self.headingRemainder(in: line, headings: starts),
+               !remainder.isEmpty,
+               !Self.isNoiseLine(remainder) {
+                section.append(remainder)
+            }
+            for following in lines.dropFirst(index + 1) {
+                if Self.matchesHeading(following, headings: ends) {
+                    break
+                }
+                section.append(following)
+            }
+            candidates.append(section)
+            // ナビ等で「レシピ」を含む行が多いページでも本物の見出しが候補に残るよう余裕を持たせる
+            if candidates.count >= 20 {
                 break
             }
-            section.append(line)
         }
-        return section
+        return candidates
+    }
+
+    private nonisolated static func scoredIngredientLines(from lines: [String]) -> [String] {
+        unique(lines.compactMap { line in
+            let cleaned = stripLeadingMarker(line)
+            guard cleaned.count >= 2,
+                  cleaned.count <= 80,
+                  !isNoiseLine(cleaned),
+                  !matchesHeading(cleaned, headings: ingredientHeadings + instructionHeadings),
+                  hasQuantityExpression(cleaned),
+                  !startsWithStepMarker(cleaned),
+                  !looksLikeInstruction(cleaned) else {
+                return nil
+            }
+            return cleaned
+        })
+    }
+
+    // 見出しなしフォールバックでは番号付きステップ行のみ採用する。
+    // 動詞ベースの推測まで許すと、非レシピページの通常の文章を手順と誤認しやすいため
+    private nonisolated static func scoredInstructionLines(from lines: [String]) -> [String] {
+        var result: [String] = []
+        var pendingNumber = false
+        for line in lines {
+            let stripped = stripLeadingMarker(line)
+            guard !isNoiseLine(stripped),
+                  !isSupplementalInstructionLine(stripped),
+                  !matchesHeading(stripped, headings: ingredientHeadings + instructionHeadings) else {
+                continue
+            }
+            if isStandaloneStepNumber(stripped) {
+                pendingNumber = true
+                continue
+            }
+            guard pendingNumber || startsWithStepMarker(stripped) else {
+                continue
+            }
+            guard let cleaned = cleanedInstructionLine(stripped) else {
+                pendingNumber = false
+                continue
+            }
+            // 番号付きでも動詞を含まない分量行(材料の番号書きなど)は手順に混ぜない
+            let isQuantityOnlyLine = looksLikeIngredient(cleaned) && !looksLikeInstruction(cleaned)
+            if !isQuantityOnlyLine {
+                result.append(cleaned)
+            }
+            pendingNumber = false
+        }
+        return unique(result)
     }
 
     private nonisolated static func cleanedText(_ text: String) -> String {
@@ -298,7 +429,9 @@ final class RecipeTextExtractor {
             #"(?i)\b(?:image|画像)\b[:：]?\s*"#,
             #"https?://\S+"#,
             #"www\.\S+"#,
-            #"(?i)\b(?:share|follow|subscribe)\b\s*[:：]?"#
+            #"(?i)\b(?:share|follow|subscribe)\b\s*[:：]?"#,
+            // WP Recipe Maker系サイトのUIテキストが材料行に貼り付くのを防ぐ
+            #"(?i)\btoggle ingredient group\b\s*"#
         ]
         for pattern in removablePatterns {
             cleaned = cleaned.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
@@ -314,12 +447,12 @@ final class RecipeTextExtractor {
             options: [.regularExpression, .caseInsensitive]
         )
         cleaned = cleaned.replacingOccurrences(
-            of: #"(?<!^)(?<!\n)(?=\s*(?:\([0-9０-９]+\)|（[0-9０-９]+）|[①②③④⑤⑥⑦⑧⑨⑩])\s*(?![にをでへと]))"#,
+            of: #"(?<!^)(?<!\n)(?=\s*(?:\([0-9０-９]+\)|（[0-9０-９]+）|【[0-9０-９]+】|[①②③④⑤⑥⑦⑧⑨⑩])\s*(?![にをでへと]))"#,
             with: "\n",
             options: .regularExpression
         )
         cleaned = cleaned.replacingOccurrences(
-            of: #"(?<!^)(?<!\n)(?<![\(（])(?=\s*[0-9０-９]+[\.)）．。]\s*(?![にをでへと]))"#,
+            of: #"(?<!^)(?<!\n)(?<![\(（])(?=\s*[0-9０-９]+[\.)）．。](?![0-9０-９])\s*(?![にをでへと]))"#,
             with: "\n",
             options: .regularExpression
         )
@@ -396,7 +529,9 @@ final class RecipeTextExtractor {
             .flatMap { $0.components(separatedBy: .newlines) }
             .map { htmlDecoded($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .filter { !isNoiseLine($0) })
+            .filter { !isNoiseLine($0) }
+            // 「???????」のような文字を含まない文字化け行を捨てる
+            .filter { $0.range(of: #"\p{L}"#, options: .regularExpression) != nil })
     }
 
     private nonisolated static func firstNonEmpty(_ values: [String?]) -> String? {
@@ -407,8 +542,8 @@ final class RecipeTextExtractor {
 
     private nonisolated static func splitDenseLine(_ line: String) -> [String] {
         let withStepBreaks = line
-            .replacingOccurrences(of: "(?=\\s(?:\\d+[\\.)）．。]\\s*(?![にをでへと])|STEP\\s*\\d+|Step\\s*\\d+|[①②③④⑤⑥⑦⑧⑨⑩]))", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "(?=(?:^|\\s)(?:\\([0-9０-９]+\\)|（[0-9０-９]+）)\\s*(?![にをでへと]))", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "(?=\\s(?:\\d+[\\.)）．。](?![0-9０-９])\\s*(?![にをでへと])|STEP\\s*\\d+|Step\\s*\\d+|[①②③④⑤⑥⑦⑧⑨⑩]))", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "(?=(?:^|\\s)(?:\\([0-9０-９]+\\)|（[0-9０-９]+）|【[0-9０-９]+】)\\s*(?![にをでへと]))", with: "\n", options: .regularExpression)
             .replacingOccurrences(of: "([。.!?])\\s+", with: "$1\n", options: .regularExpression)
         return withStepBreaks.components(separatedBy: .newlines)
     }
@@ -446,7 +581,8 @@ final class RecipeTextExtractor {
     private nonisolated static func normalizedIngredientLines(from lines: [String]) -> [String] {
         let cleaned = lines.compactMap { line -> String? in
             let value = stripLeadingMarker(line)
-            guard value.count >= 2,
+            // 「塩」「酒」など1文字の材料名があるため最小1文字まで許容する
+            guard value.count >= 1,
                   value.count <= 80,
                   !isNoiseLine(value),
                   (!looksLikeInstruction(value) || hasQuantityExpression(value)) else {
@@ -492,7 +628,7 @@ final class RecipeTextExtractor {
             options: .regularExpression
         )
         cleaned = cleaned.replacingOccurrences(
-            of: "^(\\([0-9０-９]+\\)|（[0-9０-９]+）|[0-9０-９]+[\\.)）、．。]?|[①②③④⑤⑥⑦⑧⑨⑩])[\\.)）、．。\\s]*",
+            of: "^(\\([0-9０-９]+\\)|（[0-9０-９]+）|【[0-9０-９]+】|\\[[0-9０-９]+\\]|[0-9０-９]+(?:[\\.)）、．。](?![0-9０-９]))?|[①②③④⑤⑥⑦⑧⑨⑩])[\\.)）、．。\\s]*",
             with: "",
             options: .regularExpression
         )
@@ -504,9 +640,10 @@ final class RecipeTextExtractor {
 
     private nonisolated static func headingRemainder(in line: String, headings: [String]) -> String? {
         let stripped = stripLeadingMarker(line)
+            .replacingOccurrences(of: #"^[\p{So}\p{Sk}\s【《〈\[「■#\\]+"#, with: "", options: .regularExpression)
         let sortedHeadings = headings.sorted { $0.count > $1.count }
         for heading in sortedHeadings {
-            let pattern = #"^\Q"# + NSRegularExpression.escapedPattern(for: heading) + #"\E(?:[【】\[\]「」:：\s]*|[（\(][^）\)]*[）\)]\s*)*"#
+            let pattern = #"^\Q"# + NSRegularExpression.escapedPattern(for: heading) + #"\E(?:[【】\[\]「」《》≪≫〈〉:：■\s]*|[（\(][^）\)]*[）\)]\s*)*"#
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 continue
             }
@@ -548,14 +685,16 @@ final class RecipeTextExtractor {
 
     private nonisolated static func hasQuantityExpression(_ line: String) -> Bool {
         line.range(
-            of: "([0-9０-９./]+\\s*(g|kg|ml|cc|l|L|大さじ|小さじ|カップ|個|本|枚|束|株|缶|袋|杯|片|粒|切れ|かけ|合|分|度|W)|大さじ\\s*[0-9０-９./]+|小さじ\\s*[0-9０-９./]+|少々|適量)",
+            of: "([0-9０-９./]+\\s*(g|kg|ml|cc|l|L|大さじ|小さじ|カップ|個|本|枚|束|株|缶|袋|杯|片|粒|切れ|かけ|合|丁|玉|尾|房|人前|パック|グラム|tbsp|tsp|tablespoons?|teaspoons?|cups?|ounces?|oz|pounds?|lbs?|分|度|W)|大さじ\\s*[0-9０-９./]+|小さじ\\s*[0-9０-９./]+|少々|適量)",
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
 
     private nonisolated static func looksLikeIngredientNameOnly(_ line: String) -> Bool {
         let stripped = stripLeadingMarker(line)
-        guard stripped.count >= 2, stripped.count <= 40 else { return false }
+        guard stripped.count >= 1, stripped.count <= 40 else { return false }
+        // 「【」などの記号のみの行は材料名として認めない
+        guard stripped.range(of: #"[\p{L}\p{N}]"#, options: .regularExpression) != nil else { return false }
         return stripped.range(of: "\\d", options: .regularExpression) == nil
             && !looksLikeQuantityOnly(stripped)
             && !looksLikeInstruction(stripped)
@@ -566,7 +705,7 @@ final class RecipeTextExtractor {
         let stripped = stripLeadingMarker(line)
         guard stripped.count <= 24 else { return false }
         return stripped.range(
-            of: "^(約)?[0-9０-９./]+\\s*(g|kg|ml|cc|l|L|大さじ|小さじ|カップ|個|本|枚|束|少々|適量|切れ|片|粒|缶|袋|杯|かけ|合|分)|^(少々|適量)$",
+            of: "^(約|各)?[小大]?[0-9０-９./・と]+\\s*(g|kg|ml|cc|l|L|大さじ|小さじ|カップ|個|本|枚|束|少々|適量|切れ|片|粒|缶|袋|杯|かけ|合|丁|玉|尾|房|人前|パック|グラム|tbsp|tsp|tablespoons?|teaspoons?|cups?|ounces?|oz|pounds?|lbs?|分)\\s*(（[^）]*）|\\([^)]*\\))?$|^(大さじ|小さじ)\\s*[0-9０-９./・と]+$|^(少々|適量)$",
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
@@ -580,16 +719,23 @@ final class RecipeTextExtractor {
     }
 
     private nonisolated static func matchesHeading(_ line: String, headings: [String]) -> Bool {
-        let normalized = stripLeadingMarker(line)
-            .replacingOccurrences(of: "[【】\\[\\]「」:：]", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let normalized = normalizedHeadingLine(line)
         return headings.contains { heading in
             normalized == heading.lowercased()
                 || normalized.hasPrefix(heading.lowercased() + " ")
                 || normalized.hasPrefix(heading.lowercased() + "（")
                 || normalized.hasPrefix(heading.lowercased() + "(")
         }
+    }
+
+    // 「🍳材料」「≪作り方≫」「■材料」など飾り付き見出しも認識できるよう、
+    // 行頭の絵文字・記号・囲み文字を剥がしてから照合する
+    private nonisolated static func normalizedHeadingLine(_ line: String) -> String {
+        stripLeadingMarker(line)
+            .replacingOccurrences(of: #"^[\p{So}\p{Sk}\p{P}\p{Sm}\s\\]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[【】\\[\\]「」《》≪≫〈〉:：■#]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+            .lowercased()
     }
 
     private nonisolated static func isNoiseLine(_ line: String) -> Bool {
@@ -605,6 +751,9 @@ final class RecipeTextExtractor {
         ]
         if noise.contains(where: { lower.contains($0) }) { return true }
         if lower.range(of: #"https?://|www\.|^image\b|^画像\b"#, options: .regularExpression) != nil { return true }
+        // 「準備: 30 分」「1 時間 30 分」のような所要時間メタ行を材料に混ぜない
+        if line.range(of: #"^(準備|調理|下準備|合計|所要時間)\s*[:：]"#, options: .regularExpression) != nil { return true }
+        if line.range(of: #"^([0-9０-９]+\s*(時間|分)\s*)+$"#, options: .regularExpression) != nil { return true }
         if line.range(of: "^([@#][^\\s]+\\s*)+$", options: .regularExpression) != nil { return true }
         if line.range(of: "^[\\p{So}\\p{Sk}\\s]+$", options: .regularExpression) != nil { return true }
         return false
@@ -651,7 +800,7 @@ final class RecipeTextExtractor {
     }
 
     private nonisolated static let ingredientHeadings = [
-        "材料", "具材", "用意するもの", "使うもの", "分量", "2人分", "3人分", "4人分",
+        "材料はこちら", "材料はこれ", "材料", "具材", "用意するもの", "使うもの", "分量", "2人分", "3人分", "4人分",
         "ingredients", "ingredient", "what you need"
     ]
 
@@ -666,7 +815,7 @@ final class RecipeTextExtractor {
     ]
 
     private nonisolated static let instructionEndHeadings = [
-        "材料", "具材", "用意するもの", "使うもの", "notes", "保存方法", "栄養", "コメント", "関連", "pr", "広告",
+        "材料", "具材", "用意するもの", "使うもの", "notes", "memo", "メモ", "保存方法", "栄養", "コメント", "関連", "pr", "広告",
         "つくれぽ", "似たレシピ", "記事一覧", "メールマガジン", "バックナンバー", "著者", "料理家",
         "instagram", "mail magazine", "topics", "お問い合わせ"
     ]
@@ -674,8 +823,11 @@ final class RecipeTextExtractor {
 
 private extension RecipeTextExtractor {
     nonisolated static func instructionsFromSection(_ section: [String]) -> [String] {
+        // 番号付き解釈は2ステップ以上取れたときだけ採用する。
+        // 「5.0 Stars」のような小数の誤検出1件で、無番号の本物の手順が
+        // 丸ごと捨てられるのを防ぐ
         let numbered = numberedInstructions(from: section)
-        if !numbered.isEmpty {
+        if numbered.count >= 2 {
             return unique(numbered)
         }
 
@@ -759,12 +911,14 @@ private extension RecipeTextExtractor {
     }
 
     nonisolated static func isStandaloneStepNumber(_ line: String) -> Bool {
-        line.range(of: "^(\\(?[0-9０-９]+\\)?|（[0-9０-９]+）)[\\.)．。]?$", options: .regularExpression) != nil
+        line.range(of: "^(\\(?[0-9０-９]+\\)?|（[0-9０-９]+）|【[0-9０-９]+】|\\[[0-9０-９]+\\])[\\.)．。]?$", options: .regularExpression) != nil
     }
 
     nonisolated static func startsWithStepMarker(_ line: String) -> Bool {
+        // 「5.0 Stars」「1.5合」のような小数を番号と誤認しないよう、
+        // 区切り記号の直後に数字が続く場合はマーカー扱いしない
         line.range(
-            of: "^(\\([0-9０-９]+\\)|（[0-9０-９]+）|[0-9０-９]+[\\.)）．。\\s]+|[①②③④⑤⑥⑦⑧⑨⑩]|STEP\\s*\\d+|Step\\s*\\d+)\\s*(?![にをでへと])",
+            of: "^(\\([0-9０-９]+\\)|（[0-9０-９]+）|【[0-9０-９]+】|\\[[0-9０-９]+\\]|[0-9０-９]+(?:[\\.)）．。](?![0-9０-９])|\\s)[\\.)）．。\\s]*|[①②③④⑤⑥⑦⑧⑨⑩]|STEP\\s*\\d+|Step\\s*\\d+)\\s*(?![にをでへと])",
             options: .regularExpression
         ) != nil
     }
