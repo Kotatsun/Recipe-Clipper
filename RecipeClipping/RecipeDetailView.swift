@@ -390,6 +390,18 @@ private struct RecipeEditView: View {
                     if !recipe.importedTextSource.isEmpty {
                         LabeledContent("取得元", value: recipe.importedTextSource)
                     }
+                    Button {
+                        UIPasteboard.general.string = recipe.rawImportedText
+                    } label: {
+                        Label("本文をコピー（テストケース用）", systemImage: "doc.on.doc")
+                    }
+                    .disabled(recipe.rawImportedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button {
+                        UIPasteboard.general.string = recipe.rawImportedHTML
+                    } label: {
+                        Label("取得HTMLをコピー（テストケース用）", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    .disabled(recipe.rawImportedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 

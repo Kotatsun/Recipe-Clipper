@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct ImportRecipeView: View {
     @Environment(\.dismiss) private var dismiss
@@ -160,6 +161,20 @@ struct ImportRecipeView: View {
                                 Label("元本文から再抽出", systemImage: "text.magnifyingglass")
                             }
                             .disabled(rawImportedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Button {
+                                UIPasteboard.general.string = rawImportedText
+                            } label: {
+                                Label("本文をコピー（テストケース用）", systemImage: "doc.on.doc")
+                            }
+                            .disabled(rawImportedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Button {
+                                UIPasteboard.general.string = rawImportedHTML
+                            } label: {
+                                Label("取得HTMLをコピー（テストケース用）", systemImage: "chevron.left.forwardslash.chevron.right")
+                            }
+                            .disabled(rawImportedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
 
