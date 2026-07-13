@@ -150,22 +150,24 @@ struct RecipeDetailView: View {
                     .background(RecipePalette.tomato, in: Capsule())
                     .foregroundStyle(.white)
 
-                if recipe.isFavorite {
-                    Label("お気に入り", systemImage: "heart.fill")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.pink.opacity(0.14), in: Capsule())
-                        .foregroundStyle(.pink)
+                ToggleChip(
+                    title: "お気に入り",
+                    systemImage: recipe.isFavorite ? "heart.fill" : "heart",
+                    isOn: recipe.isFavorite,
+                    onColor: .pink
+                ) {
+                    recipe.isFavorite.toggle()
+                    saveLightChange()
                 }
 
-                if recipe.wantsRemake {
-                    Text("また作りたい")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(RecipePalette.basil.opacity(0.14), in: Capsule())
-                        .foregroundStyle(RecipePalette.basil)
+                ToggleChip(
+                    title: "また作りたい",
+                    systemImage: recipe.wantsRemake ? "bookmark.fill" : "bookmark",
+                    isOn: recipe.wantsRemake,
+                    onColor: RecipePalette.basil
+                ) {
+                    recipe.wantsRemake.toggle()
+                    saveLightChange()
                 }
             }
 
@@ -174,12 +176,35 @@ struct RecipeDetailView: View {
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
 
+            HStack(spacing: 10) {
+                Text("評価")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                RatingPicker(rating: ratingBinding)
+            }
+
             Text(metaText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineSpacing(3)
                 .textSelection(.enabled)
         }
+    }
+
+    private var ratingBinding: Binding<Int> {
+        Binding(
+            get: { recipe.rating },
+            set: { newValue in
+                recipe.rating = newValue
+                saveLightChange()
+            }
+        )
+    }
+
+    // お気に入り・また作りたい・評価・材料チェックのような軽い操作では
+    // updatedAtを更新しない(一覧の「最近更新」ソート順が変わってしまうため)
+    private func saveLightChange() {
+        try? modelContext.save()
     }
 
     @ViewBuilder
@@ -222,19 +247,60 @@ struct RecipeDetailView: View {
                 EmptyDetailText("材料情報なし")
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(recipe.ingredientLines, id: \.self) { line in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("・")
+                    if checkedIngredientCount > 0 {
+                        HStack {
+                            Text("\(checkedIngredientCount)/\(recipe.ingredientLines.count) チェック済み")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text(line)
-                                .textSelection(.enabled)
+                            Spacer()
+                            Button("リセット") {
+                                recipe.checkedIngredientLinesText = ""
+                                saveLightChange()
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RecipePalette.basil)
                         }
+                    }
+
+                    ForEach(recipe.ingredientLines, id: \.self) { line in
+                        ingredientRow(line)
                     }
                 }
                 .font(.body)
                 .lineSpacing(3)
             }
         }
+    }
+
+    private func ingredientRow(_ line: String) -> some View {
+        let isChecked = recipe.isIngredientChecked(line)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isChecked ? RecipePalette.basil : Color.secondary)
+            Text(line)
+                .strikethrough(isChecked)
+                .foregroundStyle(isChecked ? Color.secondary : Color.primary)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            recipe.toggleIngredientChecked(line)
+            saveLightChange()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isChecked ? "チェック済み" : "未チェック")
+        .accessibilityAction {
+            recipe.toggleIngredientChecked(line)
+            saveLightChange()
+        }
+    }
+
+    private var checkedIngredientCount: Int {
+        // 材料編集後に残った古いチェック行を数えないよう、現在の材料と突き合わせる
+        let currentLines = Set(recipe.ingredientLines)
+        return recipe.checkedIngredientLines.filter(currentLines.contains).count
     }
 
     private var instructionsSection: some View {
@@ -327,13 +393,11 @@ struct RecipeDetailView: View {
         }
     }
 
+    // 評価・お気に入り・また作りたいは上のトグルUIが状態を示すため、ここには含めない
     private var metaText: String {
         var parts: [String] = []
         let source = recipe.sourceHost.isEmpty ? recipe.sourceKind.displayName : recipe.sourceHost
         parts.append("\(source) / \(recipe.sourceKind.displayName)")
-        if recipe.rating > 0 { parts.append(RatingStars.text(for: recipe.rating)) }
-        if recipe.isFavorite { parts.append("お気に入り") }
-        if recipe.wantsRemake { parts.append("また作りたい") }
         parts.append("\(recipe.cookLogs.count)回作成")
         if let lastCookedAt = recipe.lastCookedAt {
             parts.append("最終: \(lastCookedAt.formatted(date: .numeric, time: .omitted))")
@@ -557,6 +621,7 @@ private struct RecipeEditSnapshot {
     var sourceKindRaw: String
     var ingredientLinesText: String
     var instructionLinesText: String
+    var checkedIngredientLinesText: String
     var tagsText: String
     var notes: String
     var rawImportedText: String
@@ -571,6 +636,7 @@ private struct RecipeEditSnapshot {
         sourceKindRaw = recipe.sourceKindRaw
         ingredientLinesText = recipe.ingredientLinesText
         instructionLinesText = recipe.instructionLinesText
+        checkedIngredientLinesText = recipe.checkedIngredientLinesText
         tagsText = recipe.tagsText
         notes = recipe.notes
         rawImportedText = recipe.rawImportedText
@@ -586,6 +652,7 @@ private struct RecipeEditSnapshot {
         recipe.sourceKindRaw = sourceKindRaw
         recipe.ingredientLinesText = ingredientLinesText
         recipe.instructionLinesText = instructionLinesText
+        recipe.checkedIngredientLinesText = checkedIngredientLinesText
         recipe.tagsText = tagsText
         recipe.notes = notes
         recipe.rawImportedText = rawImportedText
@@ -599,6 +666,37 @@ private struct RecipeEditSnapshot {
 private struct SharePayload: Identifiable {
     let id = UUID()
     var items: [Any]
+}
+
+/// 詳細画面でタップして切り替えられる状態チップ(お気に入り・また作りたい)。
+/// 未設定時も薄く表示し、タップ対象であることが分かるようにする
+private struct ToggleChip: View {
+    let title: String
+    let systemImage: String
+    let isOn: Bool
+    let onColor: Color
+    let action: () -> Void
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                isOn ? onColor.opacity(0.14) : Color.secondary.opacity(0.08),
+                in: Capsule()
+            )
+            .foregroundStyle(isOn ? onColor : Color.secondary)
+            .contentShape(Capsule())
+            .onTapGesture(perform: action)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityRemoveTraits(.isStaticText)
+            .accessibilityAction {
+                action()
+            }
+            .accessibilityLabel(title)
+            .accessibilityValue(isOn ? "オン" : "オフ")
+    }
 }
 
 private struct DetailSection<Content: View>: View {

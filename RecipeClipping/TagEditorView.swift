@@ -102,14 +102,17 @@ struct RatingPicker: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(1...5, id: \.self) { value in
-                Button {
-                    rating = rating == value ? 0 : value
-                } label: {
-                    Image(systemName: value <= rating ? "star.fill" : "star")
-                        .foregroundStyle(value <= rating ? .yellow : .secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("評価\(value)")
+                Image(systemName: value <= rating ? "star.fill" : "star")
+                    .foregroundStyle(value <= rating ? .yellow : .secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        rating = rating == value ? 0 : value
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction {
+                        rating = rating == value ? 0 : value
+                    }
+                    .accessibilityLabel("評価\(value)")
             }
         }
     }

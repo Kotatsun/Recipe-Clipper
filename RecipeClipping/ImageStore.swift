@@ -18,7 +18,9 @@ struct ImageStore {
         return cache
     }()
 
-    static var directoryURL: URL {
+    // BackupServiceのデフォルト引数(nonisolatedコンテキスト)から参照されるため、
+    // MainActor分離を外す。FileManagerのパス計算のみでスレッド安全
+    nonisolated static var directoryURL: URL {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("RecipeImages", isDirectory: true)
     }

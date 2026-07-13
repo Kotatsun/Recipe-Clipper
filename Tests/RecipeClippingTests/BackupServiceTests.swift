@@ -61,6 +61,7 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(restored.tags, ["和食", "煮物"])
         XCTAssertEqual(restored.ingredientLines, ["にんじん 1本", "だいこん 1/2本"])
         XCTAssertEqual(restored.instructionLines, ["切る", "煮る"])
+        XCTAssertEqual(restored.checkedIngredientLines, ["にんじん 1本"])
         XCTAssertEqual(restored.sourceKindRaw, "web")
         XCTAssertTrue(restored.isFavorite)
         XCTAssertTrue(restored.wantsRemake)
@@ -197,6 +198,7 @@ final class BackupServiceTests: XCTestCase {
         recipe.isFavorite = true
         recipe.wantsRemake = true
         recipe.rating = 4
+        recipe.checkedIngredientLines = ["にんじん 1本"]
         return recipe
     }
 }

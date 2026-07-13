@@ -14,6 +14,9 @@ final class Recipe {
     var tagsText: String
     var ingredientLinesText: String = ""
     var instructionLinesText: String = ""
+    // 買い物用チェックリストの状態。チェック済みの材料行そのものを改行区切りで持つ
+    // (行番号ではなく行テキストで持つことで、材料編集後も一致する行のチェックが自然に残る)
+    var checkedIngredientLinesText: String = ""
     var normalizedSourceURLString: String = ""
     var sourceKindRaw: String = "web"
     var isFavorite: Bool = false
@@ -101,6 +104,25 @@ final class Recipe {
         set { instructionLinesText = Self.text(from: newValue) }
     }
 
+    var checkedIngredientLines: [String] {
+        get { Self.lines(from: checkedIngredientLinesText) }
+        set { checkedIngredientLinesText = Self.text(from: newValue) }
+    }
+
+    func toggleIngredientChecked(_ line: String) {
+        var lines = checkedIngredientLines
+        if let index = lines.firstIndex(of: line) {
+            lines.remove(at: index)
+        } else {
+            lines.append(line)
+        }
+        checkedIngredientLines = lines
+    }
+
+    func isIngredientChecked(_ line: String) -> Bool {
+        checkedIngredientLines.contains(line)
+    }
+
     var extractionWarnings: [String] {
         get { Self.lines(from: extractionWarningsText) }
         set { extractionWarningsText = Self.text(from: newValue) }
@@ -138,6 +160,9 @@ final class Recipe {
         if sourceKindRaw.isEmpty {
             sourceKindRaw = RecipeSourceKind.detect(urlString: sourceURLString, host: sourceHost).rawValue
         }
+        // 材料の編集で存在しなくなった行のチェック状態は捨てる
+        let currentIngredients = Set(ingredientLines)
+        checkedIngredientLines = checkedIngredientLines.filter { currentIngredients.contains($0) }
     }
 
     static let maxRawImportedHTMLLength = 500_000

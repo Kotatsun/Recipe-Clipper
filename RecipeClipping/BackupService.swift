@@ -190,6 +190,7 @@ private struct RecipeBackup: Codable {
     var tags: [String]
     var ingredients: [String]
     var instructions: [String]
+    var checkedIngredients: [String]
     var normalizedSourceURL: String
     var sourceKind: String
     var isFavorite: Bool
@@ -219,6 +220,7 @@ private struct RecipeBackup: Codable {
         case tags
         case ingredients
         case instructions
+        case checkedIngredients
         case normalizedSourceURL
         case sourceKind
         case isFavorite
@@ -250,6 +252,7 @@ private struct RecipeBackup: Codable {
         tags = recipe.tags
         ingredients = recipe.ingredientLines
         instructions = recipe.instructionLines
+        checkedIngredients = recipe.checkedIngredientLines
         normalizedSourceURL = recipe.normalizedSourceURLString
         sourceKind = recipe.sourceKindRaw
         isFavorite = recipe.isFavorite
@@ -284,6 +287,7 @@ private struct RecipeBackup: Codable {
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         ingredients = try container.decodeIfPresent([String].self, forKey: .ingredients) ?? []
         instructions = try container.decodeIfPresent([String].self, forKey: .instructions) ?? []
+        checkedIngredients = try container.decodeIfPresent([String].self, forKey: .checkedIngredients) ?? []
         normalizedSourceURL = try container.decodeIfPresent(String.self, forKey: .normalizedSourceURL)
             ?? URLNormalizer.normalizedString(for: sourceURL)
         sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind)
@@ -331,6 +335,7 @@ private struct RecipeBackup: Codable {
         recipe.isFavorite = isFavorite
         recipe.rating = rating
         recipe.wantsRemake = wantsRemake
+        recipe.checkedIngredientLines = checkedIngredients
         recipe.createdAt = createdAt
         recipe.updatedAt = updatedAt
         recipe.refreshDerivedFields()
