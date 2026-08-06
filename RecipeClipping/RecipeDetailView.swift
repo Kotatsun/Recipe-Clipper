@@ -17,19 +17,16 @@ struct RecipeDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
                 heroImage
                 titleBlock
-                sourceButton
-                summarySection
                 ingredientsSection
                 instructionsSection
-                notesSection
-                tagsSection
+                finishingSection
                 cookLogsSection
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
+            .padding(16)
+            .padding(.bottom, 28)
         }
         .background(
             LinearGradient(
@@ -136,12 +133,12 @@ struct RecipeDetailView: View {
         LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 24, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 220, maxHeight: 340)
-            .background(.background, in: RoundedRectangle(cornerRadius: 24))
-            .shadow(color: .black.opacity(0.14), radius: 12, y: 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.08), radius: 14, y: 7)
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(recipe.sourceKind.displayName)
                     .font(.caption.weight(.bold))
@@ -176,6 +173,16 @@ struct RecipeDetailView: View {
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
 
+            if !recipe.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(recipe.summary)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+            }
+
+            Divider()
+
             HStack(spacing: 10) {
                 Text("評価")
                     .font(.subheadline)
@@ -188,7 +195,13 @@ struct RecipeDetailView: View {
                 .foregroundStyle(.secondary)
                 .lineSpacing(3)
                 .textSelection(.enabled)
+
+            sourceLink
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.045), radius: 12, y: 6)
     }
 
     private var ratingBinding: Binding<Int> {
@@ -208,41 +221,25 @@ struct RecipeDetailView: View {
     }
 
     @ViewBuilder
-    private var sourceButton: some View {
+    private var sourceLink: some View {
         if let url = recipe.sourceURL {
             Link(destination: url) {
-                Label("元レシピを開く", systemImage: "safari")
-                    .font(.body.weight(.semibold))
+                HStack {
+                    Label("元レシピを開く", systemImage: "safari")
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                }
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(
-                        LinearGradient(
-                            colors: [RecipePalette.tomato, RecipePalette.ember],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: Capsule()
-                    )
-                    .foregroundStyle(.white)
-                    .shadow(color: RecipePalette.tomato.opacity(0.35), radius: 8, y: 4)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var summarySection: some View {
-        if !recipe.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            DetailSection(title: "概要") {
-                Text(recipe.summary)
-                    .font(.body)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
+                    .padding(12)
+                    .background(RecipePalette.tomato.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                    .foregroundStyle(RecipePalette.tomato)
             }
         }
     }
 
     private var ingredientsSection: some View {
-        DetailSection(title: "材料") {
+        DetailSection(title: "材料", systemImage: "carrot.fill", tint: RecipePalette.basil) {
             if recipe.ingredientLines.isEmpty {
                 EmptyDetailText("材料情報なし")
             } else {
@@ -304,7 +301,7 @@ struct RecipeDetailView: View {
     }
 
     private var instructionsSection: some View {
-        DetailSection(title: "作り方") {
+        DetailSection(title: "作り方", systemImage: "list.number", tint: RecipePalette.tomato) {
             if recipe.instructionLines.isEmpty {
                 EmptyDetailText("作り方情報なし")
             } else {
@@ -336,28 +333,32 @@ struct RecipeDetailView: View {
     }
 
     @ViewBuilder
-    private var notesSection: some View {
-        if !recipe.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            DetailSection(title: "自分メモ") {
-                Text(recipe.notes)
-                    .font(.body)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-            }
-        }
-    }
+    private var finishingSection: some View {
+        let hasNotes = !recipe.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasTags = !recipe.tags.isEmpty
 
-    @ViewBuilder
-    private var tagsSection: some View {
-        if !recipe.tags.isEmpty {
-            DetailSection(title: "タグ") {
-                FlowTags(tags: recipe.tags)
+        if hasNotes || hasTags {
+            DetailSection(title: "メモとタグ", systemImage: "tag.fill", tint: .indigo) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if hasNotes {
+                        Text(recipe.notes)
+                            .font(.body)
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                    }
+                    if hasNotes && hasTags {
+                        Divider()
+                    }
+                    if hasTags {
+                        FlowTags(tags: recipe.tags)
+                    }
+                }
             }
         }
     }
 
     private var cookLogsSection: some View {
-        DetailSection(title: "作った記録") {
+        DetailSection(title: "作った記録", systemImage: "clock.arrow.circlepath", tint: RecipePalette.ember) {
             VStack(alignment: .leading, spacing: 12) {
                 Button {
                     showingAddCookLog = true
@@ -365,6 +366,7 @@ struct RecipeDetailView: View {
                     Label("作った記録を追加", systemImage: "camera")
                 }
                 .buttonStyle(.bordered)
+                .tint(RecipePalette.ember)
 
                 if recipe.cookLogs.isEmpty {
                     EmptyDetailText("まだ作った記録がありません")
@@ -396,8 +398,9 @@ struct RecipeDetailView: View {
     // 評価・お気に入り・また作りたいは上のトグルUIが状態を示すため、ここには含めない
     private var metaText: String {
         var parts: [String] = []
-        let source = recipe.sourceHost.isEmpty ? recipe.sourceKind.displayName : recipe.sourceHost
-        parts.append("\(source) / \(recipe.sourceKind.displayName)")
+        if !recipe.sourceHost.isEmpty {
+            parts.append(recipe.sourceHost)
+        }
         parts.append("\(recipe.cookLogs.count)回作成")
         if let lastCookedAt = recipe.lastCookedAt {
             parts.append("最終: \(lastCookedAt.formatted(date: .numeric, time: .omitted))")
@@ -450,6 +453,8 @@ private struct RecipeEditView: View {
     // onAppearではなくinitで取ることで、シート表示ごとに必ず新しい値が入る
     @State private var snapshot: RecipeEditSnapshot
     @State private var didCancel = false
+    @State private var isReplacingPhoto = false
+    @State private var imageErrorMessage: String?
 
     init(recipe: Recipe) {
         self.recipe = recipe
@@ -472,92 +477,42 @@ private struct RecipeEditView: View {
     }
 
     private var editForm: some View {
-        Form {
-            Section("代表画像") {
-                LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 16, contentMode: .fit)
-                    .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
-                    .listRowInsets(EdgeInsets())
-
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Label("代表画像を変更", systemImage: "photo.on.rectangle")
-                }
-                .onChange(of: selectedPhoto) { _, newItem in
-                    Task { await replaceHeroImage(with: newItem) }
-                }
+        ScrollView {
+            VStack(spacing: 16) {
+                editCoverCard
+                editBasicsCard
+                editTextCard(
+                    title: "材料",
+                    systemImage: "carrot.fill",
+                    tint: RecipePalette.basil,
+                    text: $recipe.ingredientLinesText,
+                    minimumHeight: 145,
+                    placeholder: "材料を自由に入力"
+                )
+                editTextCard(
+                    title: "作り方",
+                    systemImage: "list.number",
+                    tint: RecipePalette.tomato,
+                    text: $recipe.instructionLinesText,
+                    minimumHeight: 190,
+                    placeholder: "作り方を自由に入力"
+                )
+                editFinishingCard
+                editPreferenceCard
+                editSourceCard
+                editSaveButton
             }
-
-            Section("基本情報") {
-                TextField("タイトル", text: $recipe.title)
-                TextField("概要", text: $recipe.summary, axis: .vertical)
-                    .lineLimit(3...10)
-                Picker("ソース種別", selection: $recipe.sourceKindRaw) {
-                    ForEach(RecipeSourceKind.allCases) { kind in
-                        Text(kind.displayName).tag(kind.rawValue)
-                    }
-                }
-            }
-
-            Section("材料") {
-                TextEditor(text: $recipe.ingredientLinesText)
-                    .frame(minHeight: 140)
-            }
-
-            Section("作り方") {
-                TextEditor(text: $recipe.instructionLinesText)
-                    .frame(minHeight: 190)
-            }
-
-            Section("タグ") {
-                TagEditorView(tagsText: $recipe.tagsText, suggestions: frequentTags)
-            }
-
-            Section("自分メモ") {
-                TextEditor(text: $recipe.notes)
-                    .frame(minHeight: 110)
-            }
-
-            Section {
-                DisclosureGroup("取得した元本文") {
-                    TextEditor(text: $recipe.rawImportedText)
-                        .frame(minHeight: 220)
-                    if !recipe.importedTextSource.isEmpty {
-                        LabeledContent("取得元", value: recipe.importedTextSource)
-                    }
-                    Button {
-                        UIPasteboard.general.string = recipe.rawImportedText
-                    } label: {
-                        Label("本文をコピー（テストケース用）", systemImage: "doc.on.doc")
-                    }
-                    .disabled(recipe.rawImportedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Button {
-                        UIPasteboard.general.string = recipe.rawImportedHTML
-                    } label: {
-                        Label("取得HTMLをコピー（テストケース用）", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                    .disabled(recipe.rawImportedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-
-            Section("お気に入り・評価") {
-                Toggle("お気に入り", isOn: $recipe.isFavorite)
-                Toggle("また作りたい", isOn: $recipe.wantsRemake)
-                HStack {
-                    Text("評価")
-                    Spacer()
-                    RatingPicker(rating: $recipe.rating)
-                }
-            }
-
-            Section("出典") {
-                if let url = recipe.sourceURL {
-                    Link("元レシピを開く", destination: url)
-                }
-                Text(recipe.sourceURLString)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
+            .padding(16)
+            .padding(.bottom, 36)
         }
+        .background(
+            LinearGradient(
+                colors: [RecipePalette.tomato.opacity(0.07), Color(.systemGroupedBackground), RecipePalette.basil.opacity(0.06)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
         .navigationTitle("レシピを編集")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -570,7 +525,17 @@ private struct RecipeEditView: View {
                 Button("完了") {
                     saveAndDismiss()
                 }
+                .fontWeight(.semibold)
+                .disabled(recipe.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isReplacingPhoto)
             }
+        }
+        .alert("画像を変更できませんでした", isPresented: Binding(
+            get: { imageErrorMessage != nil },
+            set: { if !$0 { imageErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { imageErrorMessage = nil }
+        } message: {
+            Text(imageErrorMessage ?? "")
         }
         // シートのスワイプ閉じは従来どおり保存扱い
         .onDisappear {
@@ -580,10 +545,267 @@ private struct RecipeEditView: View {
         }
     }
 
+    private var editCoverCard: some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 14) {
+                editCardHeading("できあがり写真", systemImage: "camera.fill", tint: RecipePalette.tomato)
+
+                LocalImageView(fileName: recipe.localImageFileName, cornerRadius: 18, contentMode: .fit)
+                    .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 280)
+                    .background(RecipePalette.cream.opacity(0.45), in: RoundedRectangle(cornerRadius: 18))
+
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    HStack(spacing: 8) {
+                        if isReplacingPhoto {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "photo.on.rectangle")
+                        }
+                        Text(isReplacingPhoto ? "写真を変更中…" : recipe.localImageFileName == nil ? "写真を選ぶ" : "写真を変更")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .foregroundStyle(.white)
+                    .background(
+                        LinearGradient(colors: [RecipePalette.tomato, RecipePalette.ember], startPoint: .leading, endPoint: .trailing),
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                }
+                .disabled(isReplacingPhoto)
+                .onChange(of: selectedPhoto) { _, newItem in
+                    Task { await replaceHeroImage(with: newItem) }
+                }
+            }
+        }
+    }
+
+    private var editBasicsCard: some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 14) {
+                editCardHeading("基本情報", systemImage: "sparkles", tint: RecipePalette.ember)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("レシピ名")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("レシピ名", text: $recipe.title)
+                        .font(.title3.weight(.semibold))
+                        .padding(12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ひとこと")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("味や特徴をメモ", text: $recipe.summary, axis: .vertical)
+                        .lineLimit(3...10)
+                        .padding(12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                HStack {
+                    Label("登録方法", systemImage: "square.and.pencil")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Picker("登録方法", selection: $recipe.sourceKindRaw) {
+                        ForEach(RecipeSourceKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+                .padding(12)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    private func editTextCard(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        text: Binding<String>,
+        minimumHeight: CGFloat,
+        placeholder: String
+    ) -> some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 10) {
+                editCardHeading(title, systemImage: systemImage, tint: tint)
+                Text("入力中は自由に改行・挿入できます。表示時に改行ごとに分かれます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ZStack(alignment: .topLeading) {
+                    if text.wrappedValue.isEmpty {
+                        Text(placeholder)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: text)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: minimumHeight)
+                }
+                .padding(8)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            }
+        }
+    }
+
+    private var editFinishingCard: some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 16) {
+                editCardHeading("仕上げ", systemImage: "tag.fill", tint: .indigo)
+                TagEditorView(tagsText: $recipe.tagsText, suggestions: frequentTags)
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("自分用メモ")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ZStack(alignment: .topLeading) {
+                        if recipe.notes.isEmpty {
+                            Text("次回の調整、家族の好みなど")
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $recipe.notes)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 110)
+                    }
+                    .padding(8)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+        }
+    }
+
+    private var editPreferenceCard: some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 14) {
+                editCardHeading("お気に入り・評価", systemImage: "heart.fill", tint: .pink)
+                Toggle(isOn: $recipe.isFavorite) {
+                    Label("お気に入り", systemImage: recipe.isFavorite ? "heart.fill" : "heart")
+                }
+                Toggle(isOn: $recipe.wantsRemake) {
+                    Label("また作りたい", systemImage: recipe.wantsRemake ? "bookmark.fill" : "bookmark")
+                }
+                Divider()
+                HStack {
+                    Label("評価", systemImage: "star.fill")
+                    Spacer()
+                    RatingPicker(rating: $recipe.rating)
+                }
+            }
+        }
+    }
+
+    private var editSourceCard: some View {
+        editCard {
+            VStack(alignment: .leading, spacing: 12) {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if recipe.sourceURLString.isEmpty {
+                            LabeledContent("登録方法", value: recipe.sourceKind.displayName)
+                        } else if let url = recipe.sourceURL {
+                            Link(destination: url) {
+                                Label("元レシピを開く", systemImage: "safari")
+                            }
+                            Text(recipe.sourceURLString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Label("出典", systemImage: "link")
+                        .font(.headline)
+                }
+
+                if !recipe.rawImportedText.isEmpty || !recipe.rawImportedHTML.isEmpty {
+                    Divider()
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TextEditor(text: $recipe.rawImportedText)
+                                .font(.caption.monospaced())
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 220)
+                                .padding(8)
+                                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                            if !recipe.importedTextSource.isEmpty {
+                                LabeledContent("取得元", value: recipe.importedTextSource)
+                            }
+                            Button {
+                                UIPasteboard.general.string = recipe.rawImportedText
+                            } label: {
+                                Label("本文をコピー（テストケース用）", systemImage: "doc.on.doc")
+                            }
+                            .disabled(recipe.rawImportedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            Button {
+                                UIPasteboard.general.string = recipe.rawImportedHTML
+                            } label: {
+                                Label("取得HTMLをコピー（テストケース用）", systemImage: "chevron.left.forwardslash.chevron.right")
+                            }
+                            .disabled(recipe.rawImportedHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Label("取得した元本文", systemImage: "doc.text.magnifyingglass")
+                            .font(.headline)
+                    }
+                }
+            }
+        }
+    }
+
+    private var editSaveButton: some View {
+        Button {
+            saveAndDismiss()
+        } label: {
+            Label("変更を保存", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundStyle(.white)
+                .background(
+                    LinearGradient(colors: [RecipePalette.tomato, RecipePalette.ember], startPoint: .leading, endPoint: .trailing),
+                    in: RoundedRectangle(cornerRadius: 17)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(recipe.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isReplacingPhoto)
+        .opacity(recipe.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isReplacingPhoto ? 0.55 : 1)
+    }
+
+    private func editCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.045), radius: 12, y: 6)
+    }
+
+    private func editCardHeading(_ title: String, systemImage: String, tint: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline)
+            .foregroundStyle(tint)
+    }
+
     @MainActor
     private func replaceHeroImage(with item: PhotosPickerItem?) async {
-        guard let data = try? await item?.loadTransferable(type: Data.self),
+        guard let item else { return }
+        isReplacingPhoto = true
+        imageErrorMessage = nil
+        defer { isReplacingPhoto = false }
+
+        guard let data = try? await item.loadTransferable(type: Data.self),
               let fileName = try? ImageStore.save(data: data) else {
+            imageErrorMessage = "選択した画像を読み込めませんでした。"
             return
         }
         recipe.localImageFileName = fileName
@@ -701,29 +923,21 @@ private struct ToggleChip: View {
 
 private struct DetailSection<Content: View>: View {
     let title: String
+    let systemImage: String
+    let tint: Color
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 9) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(
-                        LinearGradient(
-                            colors: [RecipePalette.tomato, RecipePalette.ember],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 4, height: 17)
-                Text(title)
-                    .font(.system(.headline, design: .serif, weight: .bold))
-            }
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .foregroundStyle(tint)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.045), radius: 12, y: 6)
     }
 }
 

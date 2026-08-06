@@ -75,6 +75,21 @@ struct ImageStore {
         return image
     }
 
+    /// PhotosPickerで選んだ未保存画像のプレビュー。フル解像度で展開せず、複数選択時のメモリ増加を抑える。
+    static func previewImage(from data: Data, maxPixelLength: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary),
+        let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            thumbnailOptions(maxPixelLength: maxPixelLength)
+        ) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
     private static func write(data: Data, fileExtension: String) throws -> String {
         let fileName = "\(UUID().uuidString).\(fileExtension)"
         let url = directoryURL.appendingPathComponent(fileName)

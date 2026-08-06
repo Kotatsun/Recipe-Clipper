@@ -238,6 +238,7 @@ enum RecipeSourceKind: String, CaseIterable, Identifiable {
     case youtube
     case web
     case original
+    case image
     case other
 
     var id: String { rawValue }
@@ -249,6 +250,7 @@ enum RecipeSourceKind: String, CaseIterable, Identifiable {
         case .youtube: "YouTube"
         case .web: "Web"
         case .original: "自作"
+        case .image: "画像"
         case .other: "その他"
         }
     }

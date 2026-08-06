@@ -8,6 +8,8 @@ struct RecipeListView: View {
 
     @AppStorage("RecipeListSort") private var sortRawValue = RecipeSort.recentlyUpdated.rawValue
     @State private var importRequest: ImportRequest?
+    @State private var showingAddRecipe = false
+    @State private var openURLImporterAfterAddRecipe = false
     @State private var searchText = ""
     @State private var selectedFilter: RecipeFilter = .all
     @State private var selectedTag: String?
@@ -105,9 +107,9 @@ struct RecipeListView: View {
                         }
 
                         Button {
-                            importRequest = ImportRequest(urlText: nil)
+                            showingAddRecipe = true
                         } label: {
-                            Label("URLから追加", systemImage: "plus")
+                            Label("レシピを追加", systemImage: "plus")
                         }
                     }
                 }
@@ -168,6 +170,17 @@ struct RecipeListView: View {
             .sheet(item: $importRequest) { request in
                 ImportRecipeView(initialURLText: request.urlText)
             }
+            .sheet(isPresented: $showingAddRecipe, onDismiss: {
+                if openURLImporterAfterAddRecipe {
+                    openURLImporterAfterAddRecipe = false
+                    importRequest = ImportRequest(urlText: nil)
+                }
+            }) {
+                AddRecipeView {
+                    openURLImporterAfterAddRecipe = true
+                    showingAddRecipe = false
+                }
+            }
             .onOpenURL { url in
                 guard let value = URLNormalizer.importURLValue(from: url) else { return }
                 // item差し替えなので、シートが開いたまま次の共有URLを受けても
@@ -179,7 +192,7 @@ struct RecipeListView: View {
                     ContentUnavailableView(
                         "まだレシピがありません",
                         systemImage: "fork.knife.circle",
-                        description: Text("右上の＋からURLを入れて、写真つきで保存します。")
+                        description: Text("右上の＋から、自作・画像・URLのどれでも追加できます。")
                     )
                 } else if visibleRecipes.isEmpty {
                     ContentUnavailableView(
