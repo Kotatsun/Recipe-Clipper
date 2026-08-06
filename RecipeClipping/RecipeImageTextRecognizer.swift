@@ -39,22 +39,15 @@ struct RecipeImageTextRecognizer: Sendable {
             let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
             try handler.perform([request])
 
-            let lines = (request.results ?? [])
-                .sorted { lhs, rhs in
-                    let verticalDistance = abs(lhs.boundingBox.midY - rhs.boundingBox.midY)
-                    if verticalDistance < 0.018 {
-                        return lhs.boundingBox.minX < rhs.boundingBox.minX
-                    }
-                    return lhs.boundingBox.midY > rhs.boundingBox.midY
-                }
-                .compactMap { $0.topCandidates(1).first?.string }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            let fragments = (request.results ?? []).compactMap { observation -> RecipeOCRTextFragment? in
+                guard let text = observation.topCandidates(1).first?.string else { return nil }
+                return RecipeOCRTextFragment(text: text, boundingBox: observation.boundingBox)
+            }
 
-            guard !lines.isEmpty else {
+            guard !fragments.isEmpty else {
                 throw RecognitionError.noText
             }
-            return lines.joined(separator: "\n")
+            return RecipeOCRTextNormalizer.reconstructedText(from: fragments)
         }.value
     }
 }

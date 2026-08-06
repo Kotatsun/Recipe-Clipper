@@ -148,6 +148,7 @@ private struct RecipeComposerView: View {
 
     @State private var title = ""
     @State private var summary = ""
+    @State private var servingsText = ""
     @State private var ingredientsText = ""
     @State private var instructionsText = ""
     @State private var tagsText = ""
@@ -393,6 +394,23 @@ private struct RecipeComposerView: View {
                         .padding(12)
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 5) {
+                        Text("何人分")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("任意")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(RecipePalette.basil)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RecipePalette.basil.opacity(0.10), in: Capsule())
+                    }
+                    TextField("例：2人分", text: $servingsText)
+                        .textInputAutocapitalization(.never)
+                        .padding(12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                }
             }
         }
     }
@@ -538,13 +556,18 @@ private struct RecipeComposerView: View {
 
     @MainActor
     private func applyRecognizedText() {
-        let result = parser.parse(recognizedText, mode: .plainText, metadataTitle: title)
+        let normalizedText = RecipeOCRTextNormalizer.normalizedText(recognizedText)
+        recognizedText = normalizedText
+        let result = parser.parse(normalizedText, mode: .plainText, metadataTitle: title)
         extractionResult = result
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let parsedTitle = result.title {
             title = parsedTitle
         }
         if summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let parsedSummary = result.summary {
             summary = parsedSummary
+        }
+        if servingsText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let parsedServings = result.servings {
+            servingsText = parsedServings
         }
         if !result.ingredients.isEmpty {
             ingredientsText = Recipe.text(from: result.ingredients)
@@ -577,6 +600,7 @@ private struct RecipeComposerView: View {
             localImageFileName: imageFileName,
             notes: notes,
             tagsText: tagsText,
+            servingsText: servingsText,
             ingredientLinesText: ingredientsText,
             instructionLinesText: instructionsText,
             normalizedSourceURLString: "",

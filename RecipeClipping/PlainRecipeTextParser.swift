@@ -82,7 +82,8 @@ final class PlainRecipeTextParser {
             confidence: min(confidence, 1.0),
             rawText: normalized,
             ingredientSource: ingredientSource,
-            instructionSource: instructionSource
+            instructionSource: instructionSource,
+            servings: RecipeServingParser.extract(from: normalized)
         )
     }
 

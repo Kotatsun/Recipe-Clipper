@@ -163,7 +163,7 @@ private struct RecipeClipperBackupPayload: Codable {
 
     @MainActor
     init(recipes: [Recipe]) {
-        self.formatVersion = 1
+        self.formatVersion = 2
         self.exportedAt = Date()
         self.recipes = recipes
             .sorted { $0.createdAt < $1.createdAt }
@@ -188,6 +188,7 @@ private struct RecipeBackup: Codable {
     var imagePath: String?
     var notes: String
     var tags: [String]
+    var servings: String
     var ingredients: [String]
     var instructions: [String]
     var checkedIngredients: [String]
@@ -218,6 +219,7 @@ private struct RecipeBackup: Codable {
         case imagePath
         case notes
         case tags
+        case servings
         case ingredients
         case instructions
         case checkedIngredients
@@ -250,6 +252,7 @@ private struct RecipeBackup: Codable {
         imagePath = recipe.localImageFileName
         notes = recipe.notes
         tags = recipe.tags
+        servings = recipe.servingsText
         ingredients = recipe.ingredientLines
         instructions = recipe.instructionLines
         checkedIngredients = recipe.checkedIngredientLines
@@ -285,6 +288,8 @@ private struct RecipeBackup: Codable {
         imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        // formatVersion 1 のバックアップには servings がないため、空欄として復元する。
+        servings = try container.decodeIfPresent(String.self, forKey: .servings) ?? ""
         ingredients = try container.decodeIfPresent([String].self, forKey: .ingredients) ?? []
         instructions = try container.decodeIfPresent([String].self, forKey: .instructions) ?? []
         checkedIngredients = try container.decodeIfPresent([String].self, forKey: .checkedIngredients) ?? []
@@ -318,6 +323,7 @@ private struct RecipeBackup: Codable {
             localImageFileName: imagePath,
             notes: notes,
             tagsText: tags.joined(separator: ", "),
+            servingsText: servings,
             ingredientLinesText: Recipe.text(from: ingredients),
             instructionLinesText: Recipe.text(from: instructions),
             normalizedSourceURLString: normalizedSourceURL,

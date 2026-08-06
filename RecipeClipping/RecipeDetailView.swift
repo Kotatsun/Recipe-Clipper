@@ -240,6 +240,15 @@ struct RecipeDetailView: View {
 
     private var ingredientsSection: some View {
         DetailSection(title: "材料", systemImage: "carrot.fill", tint: RecipePalette.basil) {
+            if !recipe.servingsText.isEmpty {
+                Label(recipe.servingsText, systemImage: "person.2.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(RecipePalette.basil)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(RecipePalette.basil.opacity(0.10), in: Capsule())
+                    .accessibilityLabel("何人分 \(recipe.servingsText)")
+            }
             if recipe.ingredientLines.isEmpty {
                 EmptyDetailText("材料情報なし")
             } else {
@@ -414,7 +423,8 @@ struct RecipeDetailView: View {
             blocks.append("概要:\n\(recipe.summary)")
         }
         if !recipe.ingredientLines.isEmpty {
-            blocks.append("材料:\n" + recipe.ingredientLines.map { "・\($0)" }.joined(separator: "\n"))
+            let heading = recipe.servingsText.isEmpty ? "材料" : "材料（\(recipe.servingsText)）"
+            blocks.append("\(heading):\n" + recipe.ingredientLines.map { "・\($0)" }.joined(separator: "\n"))
         }
         if !recipe.instructionLines.isEmpty {
             let steps = recipe.instructionLines.enumerated().map { "\($0.offset + 1). \($0.element)" }
@@ -601,6 +611,24 @@ private struct RecipeEditView: View {
                         .foregroundStyle(.secondary)
                     TextField("味や特徴をメモ", text: $recipe.summary, axis: .vertical)
                         .lineLimit(3...10)
+                        .padding(12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 5) {
+                        Text("何人分")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("任意")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(RecipePalette.basil)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RecipePalette.basil.opacity(0.10), in: Capsule())
+                    }
+                    TextField("例：2人分", text: $recipe.servingsText)
+                        .textInputAutocapitalization(.never)
                         .padding(12)
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
                 }
@@ -841,6 +869,7 @@ private struct RecipeEditSnapshot {
     var title: String
     var summary: String
     var sourceKindRaw: String
+    var servingsText: String
     var ingredientLinesText: String
     var instructionLinesText: String
     var checkedIngredientLinesText: String
@@ -856,6 +885,7 @@ private struct RecipeEditSnapshot {
         title = recipe.title
         summary = recipe.summary
         sourceKindRaw = recipe.sourceKindRaw
+        servingsText = recipe.servingsText
         ingredientLinesText = recipe.ingredientLinesText
         instructionLinesText = recipe.instructionLinesText
         checkedIngredientLinesText = recipe.checkedIngredientLinesText
@@ -872,6 +902,7 @@ private struct RecipeEditSnapshot {
         recipe.title = title
         recipe.summary = summary
         recipe.sourceKindRaw = sourceKindRaw
+        recipe.servingsText = servingsText
         recipe.ingredientLinesText = ingredientLinesText
         recipe.instructionLinesText = instructionLinesText
         recipe.checkedIngredientLinesText = checkedIngredientLinesText

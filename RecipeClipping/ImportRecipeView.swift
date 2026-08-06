@@ -12,6 +12,7 @@ struct ImportRecipeView: View {
     @State private var notes = ""
     @State private var title = ""
     @State private var summary = ""
+    @State private var servingsText = ""
     @State private var ingredientLinesText = ""
     @State private var instructionLinesText = ""
     @State private var rawImportedText = ""
@@ -28,6 +29,7 @@ struct ImportRecipeView: View {
     @State private var areIngredientsManuallyEdited = false
     @State private var areInstructionsManuallyEdited = false
     @State private var isSummaryManuallyEdited = false
+    @State private var isServingsManuallyEdited = false
     @State private var isNoteManuallyEdited = false
     @State private var isRawImportedTextManuallyEdited = false
     @State private var hasAutoFetchedInitialURL = false
@@ -320,6 +322,21 @@ struct ImportRecipeView: View {
                         .padding(12)
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 5) {
+                        Text("何人分").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("任意")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(RecipePalette.basil)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RecipePalette.basil.opacity(0.10), in: Capsule())
+                    }
+                    TextField("例：2人分", text: manualBinding($servingsText, edited: $isServingsManuallyEdited))
+                        .textInputAutocapitalization(.never)
+                        .padding(12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                }
 
                 if draft.ingredientLines.isEmpty || draft.instructionLines.isEmpty {
                     Label(
@@ -598,6 +615,7 @@ struct ImportRecipeView: View {
             sourceHost: host,
             sourceImageURL: draft?.sourceImageURL,
             imageData: draft?.imageData,
+            servingsText: extracted.servings ?? servingsText,
             ingredientLines: extracted.ingredients,
             instructionLines: extracted.instructions,
             extractedRawText: pastedBodyText,
@@ -648,6 +666,9 @@ struct ImportRecipeView: View {
         if shouldApplyField(currentValue: summary, overwriteExistingFields: overwriteExistingFields, wasManuallyEdited: isSummaryManuallyEdited) {
             summary = imported.summary
         }
+        if shouldApplyField(currentValue: servingsText, overwriteExistingFields: overwriteExistingFields, wasManuallyEdited: isServingsManuallyEdited) {
+            servingsText = imported.servingsText
+        }
         if shouldApplyField(currentValue: ingredientLinesText, overwriteExistingFields: overwriteExistingFields, wasManuallyEdited: areIngredientsManuallyEdited) {
             ingredientLinesText = imported.ingredientLines.joined(separator: "\n")
         }
@@ -689,6 +710,7 @@ struct ImportRecipeView: View {
             sourceHost: host,
             sourceImageURL: draft?.sourceImageURL,
             imageData: draft?.imageData,
+            servingsText: extracted.servings ?? servingsText,
             ingredientLines: extracted.ingredients,
             instructionLines: extracted.instructions,
             extractedRawText: rawImportedText,
@@ -854,6 +876,7 @@ struct ImportRecipeView: View {
             localImageFileName: imageFileName,
             notes: notes,
             tagsText: tagsText,
+            servingsText: servingsText,
             ingredientLinesText: ingredientLinesText,
             instructionLinesText: instructionLinesText,
             normalizedSourceURLString: normalizedURL,

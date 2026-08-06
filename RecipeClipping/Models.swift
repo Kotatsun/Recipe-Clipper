@@ -12,6 +12,9 @@ final class Recipe {
     var localImageFileName: String?
     var notes: String
     var tagsText: String
+    /// 材料とは分離して保持する任意の分量表記（例: 「2人分」「4〜6人分」）。
+    /// 空文字を既定値にすることで、このフィールドが存在しない旧ストアも軽量移行できる。
+    var servingsText: String = ""
     var ingredientLinesText: String = ""
     var instructionLinesText: String = ""
     // 買い物用チェックリストの状態。チェック済みの材料行そのものを改行区切りで持つ
@@ -45,6 +48,7 @@ final class Recipe {
         localImageFileName: String? = nil,
         notes: String = "",
         tagsText: String = "",
+        servingsText: String = "",
         ingredientLinesText: String = "",
         instructionLinesText: String = "",
         normalizedSourceURLString: String = "",
@@ -67,6 +71,7 @@ final class Recipe {
         self.localImageFileName = localImageFileName
         self.notes = notes
         self.tagsText = Self.normalizedTagsText(from: tagsText)
+        self.servingsText = Self.normalizedServingsText(from: servingsText)
         self.ingredientLinesText = ingredientLinesText
         self.instructionLinesText = instructionLinesText
         self.normalizedSourceURLString = normalizedSourceURLString.isEmpty
@@ -145,6 +150,7 @@ final class Recipe {
             summary,
             notes,
             tagsText,
+            servingsText,
             ingredientLinesText,
             instructionLinesText,
             sourceHost,
@@ -155,6 +161,7 @@ final class Recipe {
 
     func refreshDerivedFields() {
         tagsText = Self.normalizedTagsText(from: tagsText)
+        servingsText = Self.normalizedServingsText(from: servingsText)
         normalizedSourceURLString = URLNormalizer.normalizedString(for: sourceURLString)
         // 種別は編集画面でユーザーが変更できるため、未設定のときだけ自動判定する
         if sourceKindRaw.isEmpty {
@@ -166,6 +173,16 @@ final class Recipe {
     }
 
     static let maxRawImportedHTMLLength = 500_000
+
+    static func normalizedServingsText(from text: String) -> String {
+        let normalized = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return String(normalized.prefix(40))
+    }
 
     static func normalizedTags(from text: String) -> [String] {
         var seen: Set<String> = []

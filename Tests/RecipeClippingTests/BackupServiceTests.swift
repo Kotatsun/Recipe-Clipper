@@ -62,6 +62,7 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(restored.localImageFileName, "hero.jpg")
         XCTAssertEqual(restored.notes, "自分メモ")
         XCTAssertEqual(restored.tags, ["和食", "煮物"])
+        XCTAssertEqual(restored.servingsText, "2人分")
         XCTAssertEqual(restored.ingredientLines, ["にんじん 1本", "だいこん 1/2本"])
         XCTAssertEqual(restored.instructionLines, ["切る", "煮る"])
         XCTAssertEqual(restored.checkedIngredientLines, ["にんじん 1本"])
@@ -171,6 +172,46 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: keepImageURL), Data("keep-me".utf8))
     }
 
+    func testRestoreVersionOneBackupWithoutServingsDefaultsToEmpty() throws {
+        let sourceContext = try makeContext()
+        let recipe = makeSampleRecipe()
+        sourceContext.insert(recipe)
+        try sourceContext.save()
+
+        let archiveData = try BackupService.makeArchiveData(
+            from: [recipe],
+            imagesDirectoryURL: tempRoot.appendingPathComponent("no-source-images", isDirectory: true)
+        )
+        let expandedURL = tempRoot.appendingPathComponent("legacy-expanded", isDirectory: true)
+        try FileManager.default.createDirectory(at: expandedURL, withIntermediateDirectories: true)
+        try SimpleZipArchive.extract(archiveData, to: expandedURL)
+
+        let jsonURL = expandedURL.appendingPathComponent("backup.json")
+        let jsonData = try Data(contentsOf: jsonURL)
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        root["formatVersion"] = 1
+        var recipes = try XCTUnwrap(root["recipes"] as? [[String: Any]])
+        recipes[0].removeValue(forKey: "servings")
+        root["recipes"] = recipes
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            .write(to: jsonURL, options: .atomic)
+
+        let legacyArchiveURL = tempRoot.appendingPathComponent("legacy-backup.zip")
+        try SimpleZipArchive.archiveData(from: expandedURL).write(to: legacyArchiveURL)
+
+        let destContext = try makeContext()
+        let restoredCount = try BackupService.restore(
+            from: legacyArchiveURL,
+            modelContext: destContext,
+            imagesDirectoryURL: tempRoot.appendingPathComponent("legacy-dest-images", isDirectory: true)
+        )
+
+        XCTAssertEqual(restoredCount, 1)
+        let restored = try XCTUnwrap(destContext.fetch(FetchDescriptor<Recipe>()).first)
+        XCTAssertEqual(restored.servingsText, "")
+        XCTAssertEqual(restored.ingredientLines, ["にんじん 1本", "だいこん 1/2本"])
+    }
+
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([Recipe.self, CookLog.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -199,6 +240,7 @@ final class BackupServiceTests: XCTestCase {
             localImageFileName: "hero.jpg",
             notes: "自分メモ",
             tagsText: "和食, 煮物",
+            servingsText: "2人分",
             ingredientLinesText: "にんじん 1本\nだいこん 1/2本",
             instructionLinesText: "切る\n煮る",
             sourceKindRaw: "web",

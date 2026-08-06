@@ -10,6 +10,7 @@ struct ExtractedRecipeText {
     var rawText: String
     var ingredientSource: String
     var instructionSource: String
+    var servings: String? = nil
 }
 
 struct RecipeMetadata {
@@ -43,6 +44,7 @@ struct JSONLDRecipe {
     var imageURL: URL?
     var ingredients: [String]
     var instructions: [String]
+    var servings: String? = nil
 }
 
 struct RecipeTextExtractorInput {
@@ -76,6 +78,7 @@ final class RecipeTextExtractor {
         ])
         let text = Self.extractorInputText(for: input)
         var extracted = extract(from: text, metadataTitle: metadataTitle)
+        extracted.servings = RecipeServingParser.extract(from: text, explicitYield: recipe?.servings)
 
         if let title = Self.cleanedTitle(metadataTitle) {
             extracted.title = title
@@ -205,7 +208,8 @@ final class RecipeTextExtractor {
             confidence: min(confidence, 1.0),
             rawText: extractionText,
             ingredientSource: ingredientResult.lines.isEmpty ? "none" : "text",
-            instructionSource: instructionResult.lines.isEmpty ? "none" : "text"
+            instructionSource: instructionResult.lines.isEmpty ? "none" : "text",
+            servings: RecipeServingParser.extract(from: extractionText)
         )
     }
 

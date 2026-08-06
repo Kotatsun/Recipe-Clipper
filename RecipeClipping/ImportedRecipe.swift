@@ -7,6 +7,7 @@ struct ImportedRecipe {
     var sourceHost: String
     var sourceImageURL: URL?
     var imageData: Data?
+    var servingsText: String = ""
     var ingredientLines: [String] = []
     var instructionLines: [String] = []
     var extractedRawText: String = ""

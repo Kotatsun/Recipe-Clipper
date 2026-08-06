@@ -4,6 +4,7 @@ import UIKit
 struct RecipePDFSnapshot {
     let title: String
     let summary: String
+    let servings: String
     let ingredients: [String]
     let instructions: [String]
     let note: String
@@ -100,6 +101,7 @@ private extension RecipePDFSnapshot {
         let sourceURL = recipe.sourceURL ?? URL(string: recipe.normalizedSourceURLString)
         title = recipe.title
         summary = recipe.summary
+        servings = recipe.servingsText
         ingredients = recipe.ingredientLines
         instructions = recipe.instructionLines
         note = recipe.notes
@@ -200,7 +202,8 @@ private final class PDFRecipeRenderer {
         if let sourceURL = snapshot.sourceURL {
             drawSection(title: "元URL", body: sourceURL.absoluteString, url: sourceURL, style: .compact)
         }
-        drawListSection(title: "材料", items: snapshot.ingredients, prefix: "・ ")
+        let ingredientTitle = snapshot.servings.isEmpty ? "材料" : "材料（\(snapshot.servings)）"
+        drawListSection(title: ingredientTitle, items: snapshot.ingredients, prefix: "・ ")
         drawListSection(title: "作り方", items: snapshot.instructions, isNumbered: true)
         drawSection(title: "自分メモ", body: snapshot.note, style: .highlight)
         drawSection(title: "タグ", body: snapshot.tags.joined(separator: ", "), style: .compact)

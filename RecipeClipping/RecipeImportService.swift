@@ -437,7 +437,8 @@ final class RecipeImporter {
             parts.append(title)
         }
         if !recipe.ingredients.isEmpty {
-            parts.append("材料")
+            let servings = RecipeServingParser.extract(from: "", explicitYield: recipe.servings)
+            parts.append(servings.map { "材料（\($0)）" } ?? "材料")
             parts.append(contentsOf: recipe.ingredients)
         }
         if !recipe.instructions.isEmpty {
@@ -913,7 +914,8 @@ final class RecipeImporter {
                     description: recipe["description"] as? String,
                     imageURL: absoluteURL(from: extractImageString(from: recipe["image"] ?? recipe["thumbnailUrl"]), baseURL: baseURL),
                     ingredients: cleanedLines(extractStringArray(from: recipe["recipeIngredient"] ?? recipe["ingredients"])),
-                    instructions: cleanedLines(extractInstructionLines(from: recipe["recipeInstructions"] ?? recipe["instructions"]))
+                    instructions: cleanedLines(extractInstructionLines(from: recipe["recipeInstructions"] ?? recipe["instructions"])),
+                    servings: extractStringArray(from: recipe["recipeYield"]).first
                 )
             })
         }
@@ -962,6 +964,7 @@ final class RecipeImporter {
 
     private static func extractStringArray(from value: Any?) -> [String] {
         if let string = value as? String { return [string] }
+        if let number = value as? NSNumber { return [number.stringValue] }
         if let array = value as? [Any] {
             return array.flatMap { extractStringArray(from: $0) }
         }
@@ -1178,6 +1181,7 @@ final class RecipeImportService {
         result.sourceImageURL = fetched.imageURL
         result.ingredientLines = extracted.ingredients
         result.instructionLines = extracted.instructions
+        result.servingsText = extracted.servings ?? ""
         result.extractedRawText = fetched.visibleText
         result.rawImportedText = fetched.visibleText
         result.rawImportedHTML = fetched.html
