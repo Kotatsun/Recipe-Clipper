@@ -5,6 +5,8 @@ import SwiftData
 @MainActor
 final class BackupServiceTests: XCTestCase {
     private var tempRoot: URL!
+    // ModelContext does not keep its container alive; retain containers for each test's lifetime.
+    private var modelContainers: [ModelContainer] = []
 
     override func setUp() async throws {
         tempRoot = FileManager.default.temporaryDirectory
@@ -13,6 +15,7 @@ final class BackupServiceTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        modelContainers.removeAll()
         try? FileManager.default.removeItem(at: tempRoot)
         tempRoot = nil
     }
@@ -22,7 +25,7 @@ final class BackupServiceTests: XCTestCase {
         let imageData = Data("recipe-image-bytes".utf8)
         try imageData.write(to: sourceImagesURL.appendingPathComponent("hero.jpg"))
 
-        let sourceContext = try makeContainer().mainContext
+        let sourceContext = try makeContext()
         let recipe = makeSampleRecipe()
         sourceContext.insert(recipe)
         let log = CookLog(
@@ -42,7 +45,7 @@ final class BackupServiceTests: XCTestCase {
         try archiveData.write(to: archiveURL)
 
         let destImagesURL = tempRoot.appendingPathComponent("dest-images", isDirectory: true)
-        let destContext = try makeContainer().mainContext
+        let destContext = try makeContext()
         let restoredCount = try BackupService.restore(
             from: archiveURL,
             modelContext: destContext,
@@ -87,7 +90,7 @@ final class BackupServiceTests: XCTestCase {
         let sourceImagesURL = try makeImagesDirectory(named: "source-images")
         try Data("new-image".utf8).write(to: sourceImagesURL.appendingPathComponent("new.jpg"))
 
-        let sourceContext = try makeContainer().mainContext
+        let sourceContext = try makeContext()
         let recipe = makeSampleRecipe()
         sourceContext.insert(recipe)
         try sourceContext.save()
@@ -98,7 +101,7 @@ final class BackupServiceTests: XCTestCase {
         // 復元先には既存レシピと既存画像がある
         let destImagesURL = try makeImagesDirectory(named: "dest-images")
         try Data("old-image".utf8).write(to: destImagesURL.appendingPathComponent("old.jpg"))
-        let destContext = try makeContainer().mainContext
+        let destContext = try makeContext()
         let oldRecipe = Recipe(title: "古いレシピ", sourceURLString: "https://old.example.com/1")
         destContext.insert(oldRecipe)
         try destContext.save()
@@ -120,7 +123,7 @@ final class BackupServiceTests: XCTestCase {
         let keepImageURL = destImagesURL.appendingPathComponent("keep.jpg")
         try Data("keep-me".utf8).write(to: keepImageURL)
 
-        let destContext = try makeContainer().mainContext
+        let destContext = try makeContext()
         let existing = makeSampleRecipe()
         destContext.insert(existing)
         try destContext.save()
@@ -152,7 +155,7 @@ final class BackupServiceTests: XCTestCase {
         let destImagesURL = try makeImagesDirectory(named: "dest-images")
         let keepImageURL = destImagesURL.appendingPathComponent("keep.jpg")
         try Data("keep-me".utf8).write(to: keepImageURL)
-        let destContext = try makeContainer().mainContext
+        let destContext = try makeContext()
         destContext.insert(makeSampleRecipe())
         try destContext.save()
 
@@ -172,6 +175,12 @@ final class BackupServiceTests: XCTestCase {
         let schema = Schema([Recipe.self, CookLog.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeContext() throws -> ModelContext {
+        let container = try makeContainer()
+        modelContainers.append(container)
+        return container.mainContext
     }
 
     private func makeImagesDirectory(named name: String) throws -> URL {
