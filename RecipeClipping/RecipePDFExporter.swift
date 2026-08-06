@@ -169,8 +169,8 @@ private final class PDFRecipeRenderer {
 
         var movesInstructionsToContinuation: Bool {
             switch self {
-            case .standard: false
-            case .expanded, .fullPage: true
+            case .standard, .expanded: false
+            case .fullPage: true
             }
         }
     }
@@ -329,11 +329,34 @@ private final class PDFRecipeRenderer {
         }
         let ingredientRemainder = drawIngredientCard(snapshot: snapshot, rect: ingredientRect, columns: ingredientColumns)
         let allInstructions = snapshot.instructions.enumerated().map { IndexedLine(index: $0.offset, text: $0.element) }
-        let instructionRemainder = ingredientLayout.movesInstructionsToContinuation
-            ? allInstructions
-            : drawInstructionCard(snapshot: snapshot, rect: instructionRect)
-        if case .expanded = ingredientLayout {
-            drawInstructionsNextPageMarker(rect: CGRect(x: pageInset, y: 486, width: 248, height: 92))
+        let instructionRemainder: [IndexedLine]
+        switch ingredientLayout {
+        case .standard:
+            instructionRemainder = drawInstructionCard(snapshot: snapshot, rect: instructionRect)
+        case .expanded:
+            let compactInstructionRect = CGRect(x: pageInset, y: 466, width: 248, height: 298)
+            var remainingInstructions = drawInstructionCard(
+                snapshot: snapshot,
+                rect: compactInstructionRect,
+                allowsColumns: false
+            )
+            let secondaryY = ingredientRect.maxY + 18
+            let secondaryHeight = instructionRect.maxY - secondaryY
+            if !remainingInstructions.isEmpty, secondaryHeight >= 108 {
+                let secondaryRect = CGRect(
+                    x: standardIngredientRect.minX,
+                    y: secondaryY,
+                    width: standardIngredientRect.width,
+                    height: secondaryHeight
+                )
+                remainingInstructions = drawInstructionContinuationCard(
+                    remainingInstructions,
+                    rect: secondaryRect
+                )
+            }
+            instructionRemainder = remainingInstructions
+        case .fullPage:
+            instructionRemainder = allInstructions
         }
         let summary = snapshot.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         let summaryNeedsContinuation = measuredTextHeight(summary, font: .systemFont(ofSize: 8.5), width: 445, lineSpacing: 2) > 32
@@ -551,32 +574,6 @@ private final class PDFRecipeRenderer {
         return .fullPage(columns: 4)
     }
 
-    private func drawInstructionsNextPageMarker(rect: CGRect) {
-        Palette.tomato.setFill()
-        UIBezierPath(rect: CGRect(x: rect.minX, y: rect.minY, width: 34, height: 1.8)).fill()
-        drawText(
-            "COOKING INSTRUCTIONS",
-            in: CGRect(x: rect.minX, y: rect.minY + 14, width: rect.width, height: 12),
-            font: labelFont(size: 7.2, weight: .semibold),
-            color: Palette.tomato,
-            characterSpacing: 1.4
-        )
-        drawText(
-            "作り方は次のページへ",
-            in: CGRect(x: rect.minX, y: rect.minY + 34, width: rect.width - 28, height: 26),
-            font: serifFont(size: 14, weight: .semibold),
-            color: Palette.ink,
-            characterSpacing: 0.4
-        )
-        drawText(
-            "→",
-            in: CGRect(x: rect.maxX - 26, y: rect.minY + 31, width: 26, height: 24),
-            font: bodyFont(size: 15, weight: .medium),
-            color: Palette.tomato,
-            alignment: .right
-        )
-    }
-
     private func ingredientContentRects(in rect: CGRect, columns: Int) -> [CGRect] {
         let contentY = rect.minY + 68
         let contentHeight = rect.height - 84
@@ -630,7 +627,11 @@ private final class PDFRecipeRenderer {
         )
     }
 
-    private func drawInstructionCard(snapshot: RecipePDFSnapshot, rect: CGRect) -> [IndexedLine] {
+    private func drawInstructionCard(
+        snapshot: RecipePDFSnapshot,
+        rect: CGRect,
+        allowsColumns: Bool = true
+    ) -> [IndexedLine] {
         drawCard(rect, fill: Palette.card.withAlphaComponent(0.36), shadow: false)
         drawSectionHeading(
             title: "作り方",
@@ -648,6 +649,15 @@ private final class PDFRecipeRenderer {
         let contentY = rect.minY + 68
         let contentHeight = rect.height - 84
         let fullWidthContent = CGRect(x: rect.minX + 20, y: contentY, width: rect.width - 40, height: contentHeight)
+        if !allowsColumns {
+            return drawAdaptiveItems(
+                items,
+                in: [fullWidthContent],
+                numbered: true,
+                maximumFontSize: 10.8,
+                minimumFontSize: 8.8
+            )
+        }
         if drawItems(items, in: [fullWidthContent], numbered: true, fontSize: 11.6, shouldDraw: false).isEmpty {
             return drawAdaptiveItems(items, in: [fullWidthContent], numbered: true, maximumFontSize: 11.6, minimumFontSize: 9.8)
         }
@@ -667,6 +677,44 @@ private final class PDFRecipeRenderer {
         divider.stroke()
 
         return drawAdaptiveItems(items, in: columns, numbered: true, maximumFontSize: 11.5, minimumFontSize: 8.8)
+    }
+
+    private func drawInstructionContinuationCard(
+        _ items: [IndexedLine],
+        rect: CGRect,
+        title: String = "作り方（つづき）",
+        eyebrow: String = "INSTRUCTIONS CONTINUED"
+    ) -> [IndexedLine] {
+        drawCard(rect, fill: Palette.card.withAlphaComponent(0.32), shadow: false)
+        drawText(
+            eyebrow,
+            in: CGRect(x: rect.minX + 17, y: rect.minY + 14, width: rect.width - 34, height: 10),
+            font: labelFont(size: 6.8, weight: .semibold),
+            color: Palette.tomato,
+            characterSpacing: 1.25
+        )
+        drawText(
+            title,
+            in: CGRect(x: rect.minX + 17, y: rect.minY + 28, width: rect.width - 34, height: 22),
+            font: serifFont(size: 13.5, weight: .bold),
+            color: Palette.ink
+        )
+        Palette.tomato.setFill()
+        UIBezierPath(rect: CGRect(x: rect.minX + 17, y: rect.minY + 54, width: 34, height: 1.5)).fill()
+
+        let content = CGRect(
+            x: rect.minX + 17,
+            y: rect.minY + 66,
+            width: rect.width - 34,
+            height: rect.height - 80
+        )
+        return drawAdaptiveItems(
+            items,
+            in: [content],
+            numbered: true,
+            maximumFontSize: 9.8,
+            minimumFontSize: 8.4
+        )
     }
 
     private func drawRecipeFooter(snapshot: RecipePDFSnapshot) {
@@ -693,7 +741,13 @@ private final class PDFRecipeRenderer {
     }
 
     private func drawContinuation(snapshot: RecipePDFSnapshot, remainder: MainPageRemainder) {
-        continuationKicker = remainder.instructionsStartOnContinuation ? "COOKING INSTRUCTIONS" : "NOTES & HISTORY"
+        if !remainder.ingredients.isEmpty {
+            continuationKicker = "INGREDIENTS CONTINUED"
+        } else if !remainder.instructions.isEmpty {
+            continuationKicker = "COOKING INSTRUCTIONS"
+        } else {
+            continuationKicker = "NOTES & HISTORY"
+        }
         beginContinuationPage()
 
         if !remainder.ingredients.isEmpty {
@@ -701,12 +755,10 @@ private final class PDFRecipeRenderer {
             drawFlowItems(remainder.ingredients, numbered: false)
         }
         if !remainder.instructions.isEmpty {
-            drawFlowHeading(
-                remainder.instructionsStartOnContinuation ? "作り方" : "作り方（つづき）",
-                eyebrow: remainder.instructionsStartOnContinuation ? "COOKING INSTRUCTIONS" : "INSTRUCTIONS CONTINUED",
-                tint: Palette.tomato
+            drawFlowInstructionCards(
+                remainder.instructions,
+                startsOnContinuation: remainder.instructionsStartOnContinuation
             )
-            drawFlowItems(remainder.instructions, numbered: true)
         }
         continuationKicker = "NOTES & HISTORY"
         if remainder.summaryNeedsContinuation {
@@ -779,6 +831,51 @@ private final class PDFRecipeRenderer {
             flowY += height
         }
         flowY += 14
+    }
+
+    private func drawFlowInstructionCards(
+        _ items: [IndexedLine],
+        startsOnContinuation: Bool
+    ) {
+        var remaining = items
+        var isFirstCard = true
+
+        while !remaining.isEmpty {
+            if flowBottom - flowY < 160 {
+                beginContinuationPage()
+            }
+
+            let availableHeight = flowBottom - flowY
+            let desiredHeight = 80 + itemsHeight(
+                remaining,
+                width: contentWidth - 34,
+                numbered: true,
+                fontSize: 9.8
+            )
+            let cardHeight = min(availableHeight, max(160, ceil(desiredHeight + 2)))
+            let cardRect = CGRect(x: pageInset, y: flowY, width: contentWidth, height: cardHeight)
+            let title = startsOnContinuation && isFirstCard ? "作り方" : "作り方（つづき）"
+            let eyebrow = startsOnContinuation && isFirstCard ? "COOKING INSTRUCTIONS" : "INSTRUCTIONS CONTINUED"
+
+            let nextRemainder = drawInstructionContinuationCard(
+                remaining,
+                rect: cardRect,
+                title: title,
+                eyebrow: eyebrow
+            )
+            flowY = cardRect.maxY + 14
+
+            guard nextRemainder.count < remaining.count else {
+                drawFlowItems(remaining, numbered: true)
+                return
+            }
+
+            remaining = nextRemainder
+            isFirstCard = false
+            if !remaining.isEmpty {
+                beginContinuationPage()
+            }
+        }
     }
 
     @discardableResult

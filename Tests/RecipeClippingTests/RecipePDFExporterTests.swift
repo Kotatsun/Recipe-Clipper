@@ -88,7 +88,7 @@ final class RecipePDFExporterTests: XCTestCase {
         XCTAssertTrue(firstPageText.contains("作り方"))
     }
 
-    func testIngredientHeavyRecipeKeepsIngredientsOnOpeningPage() throws {
+    func testIngredientHeavyRecipeUsesRemainingSpaceForInstructions() throws {
         let ingredients = (1...16).map {
             "季節の材料\($0) 120g（角切り）"
         }.joined(separator: "\n")
@@ -100,7 +100,36 @@ final class RecipePDFExporterTests: XCTestCase {
             tagsText: "煮込み, 野菜",
             servingsText: "6人分",
             ingredientLinesText: ingredients,
-            instructionLinesText: "厚手の鍋を温め、香味野菜を弱火で炒める。\n残りの材料を順番に加え、全体へ油をなじませる。\n蓋をして弱火で30分煮込み、塩で味を整える。\n火を止めて10分休ませ、器に盛り付ける。"
+            instructionLinesText: "厚手の鍋を温め、香味野菜を弱火で炒める。\n残りの材料を順番に加え、全体へ油をなじませる。\n蓋をして弱火で30分煮込み、塩で味を整える。\n火を止めて10分休ませ、器に盛り付ける。\n仕上げのオイルを回しかけ、香りを整える。\n刻んだ香草を散らし、温かいうちにいただく。"
+        )
+
+        let outputURL = try RecipePDFExporter().exportSingle(recipe: recipe)
+        let document = try XCTUnwrap(CGPDFDocument(outputURL as CFURL))
+        let searchableDocument = try XCTUnwrap(PDFKit.PDFDocument(url: outputURL))
+        let firstPageText = try XCTUnwrap(searchableDocument.page(at: 0)?.string)
+
+        XCTAssertEqual(document.numberOfPages, 1)
+        XCTAssertTrue(firstPageText.contains("季節の材料16"))
+        XCTAssertTrue(firstPageText.contains("作り方"))
+        XCTAssertTrue(firstPageText.contains("刻んだ香草"))
+
+        let attachment = XCTAttachment(contentsOfFile: outputURL)
+        attachment.name = "IngredientHeavyRecipePreview.pdf"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testInstructionContinuationKeepsCardPresentation() throws {
+        let instructions = (1...14).map {
+            "工程\($0)では火加減と香りを確認し、全体をやさしく混ぜながら丁寧に仕上げる。"
+        }.joined(separator: "\n")
+        let recipe = Recipe(
+            title: "手順を丁寧に残す煮込み料理",
+            summary: "工程数が多い場合の継続ページを確認するレシピ。",
+            sourceURLString: "",
+            servingsText: "4人分",
+            ingredientLinesText: "玉ねぎ 1個\nにんじん 1本\nトマト 2個\n豆 200g\n香草 適量",
+            instructionLinesText: instructions
         )
 
         let outputURL = try RecipePDFExporter().exportSingle(recipe: recipe)
@@ -109,13 +138,12 @@ final class RecipePDFExporterTests: XCTestCase {
         let firstPageText = try XCTUnwrap(searchableDocument.page(at: 0)?.string)
         let secondPageText = try XCTUnwrap(searchableDocument.page(at: 1)?.string)
 
-        XCTAssertEqual(document.numberOfPages, 2)
-        XCTAssertTrue(firstPageText.contains("季節の材料16"))
-        XCTAssertFalse(secondPageText.contains("季節の材料"))
-        XCTAssertTrue(secondPageText.contains("作り方"))
+        XCTAssertGreaterThan(document.numberOfPages, 1)
+        XCTAssertTrue(firstPageText.contains("工程1"))
+        XCTAssertTrue(secondPageText.contains("作り方（つづき）"))
 
         let attachment = XCTAttachment(contentsOfFile: outputURL)
-        attachment.name = "IngredientHeavyRecipePreview.pdf"
+        attachment.name = "InstructionContinuationPreview.pdf"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
