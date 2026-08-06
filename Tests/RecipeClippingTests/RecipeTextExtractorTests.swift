@@ -179,6 +179,21 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertTrue(result.instructions.contains { $0.contains("加熱") && $0.contains("煮る") })
     }
 
+    func testJSONLDTimeMetadataIsRemovedWithoutDroppingPreparationInstruction() {
+        let result = extractor.extract(from: RecipeTextExtractorInput(
+            jsonLDRecipes: [JSONLDRecipe(
+                title: "時間メタデータ付きレシピ",
+                description: nil,
+                imageURL: nil,
+                ingredients: ["玉ねぎ 1個", "準備: 30分", "合計：1時間30分"],
+                instructions: ["下準備: 玉ねぎを薄切りにする。"]
+            )]
+        ))
+
+        XCTAssertEqual(result.ingredients, ["玉ねぎ 1個"], debug(result))
+        XCTAssertEqual(result.instructions, ["下準備: 玉ねぎを薄切りにする。"], debug(result))
+    }
+
     func testImporterExtractorDraftIntegration() throws {
         let draft = try makeDraftFromFixture("jsonld_howto_step", ext: "html")
 
@@ -587,6 +602,7 @@ final class RecipeTextExtractorTests: XCTestCase {
         )
 
         XCTAssertFalse(draft.rawImportedText.contains("659 likes"), debug(draft))
+        XCTAssertEqual(draft.title, "鰹と豆苗のレモンドレッシング", debug(draft))
         XCTAssertFalse(draft.ingredientLines.contains { $0.contains("likes") || $0.contains("comments") }, debug(draft))
         XCTAssertTrue(draft.ingredientLines.contains { $0.contains("鰹") && $0.contains("1柵") }, debug(draft))
         XCTAssertTrue(draft.ingredientLines.contains { $0.contains("ピンクペッパー") && $0.contains("適量") }, debug(draft))
@@ -631,6 +647,7 @@ final class RecipeTextExtractorTests: XCTestCase {
         let result = plainParser.parse(text, mode: .caption)
         let instructionsText = result.instructions.joined(separator: "\n")
 
+        XCTAssertEqual(result.title, "えびクリームリゾット", debug(result))
         XCTAssertEqual(result.instructions.count, 4, debug(result))
         XCTAssertTrue(instructionsText.contains("乾燥パセリ・コショウをかける"), debug(result))
         XCTAssertFalse(instructionsText.contains("保存して"), debug(result))
@@ -665,6 +682,43 @@ final class RecipeTextExtractorTests: XCTestCase {
         XCTAssertEqual(result.instructions.count, 3, debug(result))
         XCTAssertTrue(result.instructions.first?.hasPrefix("① ") == true, debug(result))
         XCTAssertFalse(result.instructions.contains { $0.contains("鶏もも肉 300g") }, debug(result))
+    }
+
+    func testPlainParserInstagramCaptionPrefersPlainTitleBeforeIngredientsOverHook() {
+        let text = """
+        忙しい日の夕飯、これで決まり
+        フライパンひとつの照り焼きチキン
+
+        材料
+        鶏もも肉 300g
+        しょうゆ 大さじ2
+
+        作り方
+        ① 鶏もも肉を焼く
+        ② しょうゆを加えてからめる
+        """
+
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertEqual(result.title, "フライパンひとつの照り焼きチキン", debug(result))
+    }
+
+    func testPlainParserInstagramCaptionExtractsDecoratedTitleFromPromotionalLine() {
+        let text = """
+        @quick_recipe ◀︎【10分タコライス】保存して作ってね
+
+        材料
+        合いびき肉 200g
+        トマト 1個
+
+        作り方
+        ① 合いびき肉を炒める
+        ② トマトをのせて完成
+        """
+
+        let result = plainParser.parse(text, mode: .caption)
+
+        XCTAssertEqual(result.title, "10分タコライス", debug(result))
     }
 
     func testPlainParserYouTubeDescriptionBulletSections() throws {
@@ -1055,7 +1109,9 @@ final class RecipeTextExtractorTests: XCTestCase {
 
         XCTAssertTrue(result.ingredients.contains { $0.contains("合いびき肉") && $0.contains("300g") }, debug(result))
         XCTAssertEqual(result.instructions.count, 3, debug(result))
-        XCTAssertTrue(result.instructions[2].contains("完成"), debug(result))
+        XCTAssertTrue(result.instructions.contains { $0.contains("ミートソース") && $0.contains("重ねる") }, debug(result))
+        XCTAssertTrue(result.instructions.contains { $0.contains("チーズ") && $0.contains("のせる") }, debug(result))
+        XCTAssertTrue(result.instructions.last?.contains("完成") == true, debug(result))
     }
 
     func testPlainParserNewQuantityUnits() throws {

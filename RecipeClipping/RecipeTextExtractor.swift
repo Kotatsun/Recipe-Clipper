@@ -751,8 +751,13 @@ final class RecipeTextExtractor {
         ]
         if noise.contains(where: { lower.contains($0) }) { return true }
         if lower.range(of: #"https?://|www\.|^image\b|^画像\b"#, options: .regularExpression) != nil { return true }
-        // 「準備: 30 分」「1 時間 30 分」のような所要時間メタ行を材料に混ぜない
-        if line.range(of: #"^(準備|調理|下準備|合計|所要時間)\s*[:：]"#, options: .regularExpression) != nil { return true }
+        // 「準備: 30 分」のように値が時間の場合だけメタ行とする。
+        // HowToSection の手順名も「下準備: 玉ねぎを切る」の形になるため、
+        // ラベルだけで除外すると実際の手順を失う。
+        if line.range(
+            of: #"^(?:準備|調理|下準備|合計|所要時間)\s*[:：]\s*(?:約\s*)?(?:[0-9０-９]+\s*(?:日|時間|時|分|秒)\s*)+(?:程度|ほど|前後)?$"#,
+            options: .regularExpression
+        ) != nil { return true }
         if line.range(of: #"^([0-9０-９]+\s*(時間|分)\s*)+$"#, options: .regularExpression) != nil { return true }
         if line.range(of: "^([@#][^\\s]+\\s*)+$", options: .regularExpression) != nil { return true }
         if line.range(of: "^[\\p{So}\\p{Sk}\\s]+$", options: .regularExpression) != nil { return true }

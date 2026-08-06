@@ -67,11 +67,12 @@ final class PlainRecipeTextParser {
         var confidence = 0.05
         if !ingredients.isEmpty { confidence += foundIngredientHeading ? 0.35 : 0.2 }
         if !instructions.isEmpty { confidence += foundInstructionHeading ? 0.35 : 0.2 }
-        if Self.title(from: lines) != nil || metadataTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+        let parsedTitle = Self.title(from: lines, mode: mode)
+        if parsedTitle != nil || metadataTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             confidence += 0.1
         }
 
-        let title = Self.title(from: lines) ?? RecipeTextExtractor.cleanedTitle(metadataTitle)
+        let title = parsedTitle ?? RecipeTextExtractor.cleanedTitle(metadataTitle)
         return ExtractedRecipeText(
             title: title,
             summary: Self.summary(from: lines, title: title),
@@ -321,8 +322,12 @@ final class PlainRecipeTextParser {
         return result
     }
 
-    private nonisolated static func title(from lines: [String]) -> String? {
-        lines.prefix(8)
+    private nonisolated static func title(from lines: [String], mode: Mode) -> String? {
+        if mode == .caption, let title = captionTitle(from: lines) {
+            return title
+        }
+
+        return lines.prefix(8)
             .first { line in
                 let stripped = stripBullet(line)
                 return stripped.count >= 3
@@ -333,6 +338,96 @@ final class PlainRecipeTextParser {
                     && !startsWithStepMarker(stripped)
             }
             .flatMap(RecipeTextExtractor.cleanedTitle)
+    }
+
+    /// Instagram captions often start with an account CTA or a short hook before
+    /// the actual dish name. Prefer an explicitly decorated/labeled name and then
+    /// a clean line immediately before the recipe section over the first line.
+    private nonisolated static func captionTitle(from lines: [String]) -> String? {
+        let prefix = Array(lines.prefix(12))
+        let firstSectionIndex = prefix.firstIndex {
+            matchesHeading($0, headings: ingredientHeadings + instructionHeadings)
+        }
+
+        var best: (title: String, score: Int)?
+        for (index, line) in prefix.enumerated() {
+            guard let candidate = captionTitleCandidate(from: line) else { continue }
+
+            var score = candidate.isExplicit ? 100 : 0
+            if index == 0 { score += 15 }
+            if let firstSectionIndex, index == firstSectionIndex - 1 { score += 40 }
+            score += max(0, 12 - index)
+
+            if best == nil || score > best!.score {
+                best = (candidate.title, score)
+            }
+        }
+        return best?.title
+    }
+
+    private nonisolated static func captionTitleCandidate(from line: String) -> (title: String, isExplicit: Bool)? {
+        let stripped = stripBullet(line).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard stripped.count >= 2,
+              stripped.count <= 100 else {
+            return nil
+        }
+
+        let explicitPatterns = [
+            #"(?:レシピ名|料理名|メニュー)\s*[:：]\s*([^\n]{2,40})$"#,
+            #"[【「『《〈]([^】」』》〉]{2,40})[】」』》〉]"#,
+            #"[＼\\]([^／\\]{2,40})[／\\]"#
+        ]
+        for pattern in explicitPatterns {
+            if let value = firstCapture(pattern: pattern, in: stripped),
+               let title = cleanedCaptionTitle(value),
+               !matchesHeading(title, headings: ingredientHeadings + instructionHeadings),
+               !isNoiseLine(title),
+               !looksLikeIngredient(title),
+               !isCaptionLeadNoise(title) {
+                return (title, true)
+            }
+        }
+
+        guard !matchesHeading(stripped, headings: ingredientHeadings + instructionHeadings),
+              !isNoiseLine(stripped),
+              !looksLikeIngredient(stripped),
+              !startsWithStepMarker(stripped),
+              !isCaptionLeadNoise(stripped),
+              stripped.count <= 40,
+              let title = cleanedCaptionTitle(stripped) else {
+            return nil
+        }
+        return (title, false)
+    }
+
+    private nonisolated static func cleanedCaptionTitle(_ rawTitle: String) -> String? {
+        let withoutDecoration = rawTitle
+            .replacingOccurrences(of: #"^[\p{So}\p{Sk}\p{P}\s]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[\p{So}\p{Sk}\p{P}\s]+$"#, with: "", options: .regularExpression)
+        return RecipeTextExtractor.cleanedTitle(withoutDecoration)
+    }
+
+    private nonisolated static func isCaptionLeadNoise(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        if lower.contains("@") || lower.hasPrefix("http") { return true }
+        let promotionalPhrases = [
+            "他のレシピ", "レシピはこちら", "投稿はこちら", "こちらから", "こちらをチェック",
+            "プロフィール", "タップして", "チェックして", "スワイプ", "ご覧ください"
+        ]
+        return promotionalPhrases.contains { lower.contains($0) }
+    }
+
+    private nonisolated static func firstCapture(pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                in: text,
+                range: NSRange(text.startIndex..<text.endIndex, in: text)
+              ),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return String(text[range])
     }
 
     private nonisolated static func summary(from lines: [String], title: String?) -> String? {
@@ -400,7 +495,12 @@ final class PlainRecipeTextParser {
     }
 
     private nonisolated static func stripStepMarker(_ line: String) -> String {
-        stripBullet(line)
+        let stripped = stripBullet(line)
+        if let first = stripped.first, isKeycapStepMarker(first) {
+            return String(stripped.dropFirst())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return stripped
             .replacingOccurrences(of: stepMarkerPattern + #"\s*"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -454,11 +554,32 @@ final class PlainRecipeTextParser {
     }
 
     private nonisolated static func isStandaloneStepNumber(_ line: String) -> Bool {
-        stripBullet(line).range(of: #"^(?:\(?[0-9０-９]+\)?|（[0-9０-９]+）|【[0-9０-９]+】|\[[0-9０-９]+\]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+)[\.)）:：．。]?$"#, options: .regularExpression) != nil
+        let stripped = stripBullet(line)
+        if stripped.count == 1, let first = stripped.first, isKeycapStepMarker(first) {
+            return true
+        }
+        return stripped.range(of: #"^(?:\(?[0-9０-９]+\)?|（[0-9０-９]+）|【[0-9０-９]+】|\[[0-9０-９]+\]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳❶❷❸❹❺❻❼❽❾❿]|\d\ufe0f?\u20e3|\x{1F51F}|(?i:step)\s*[0-9０-９]+)[\.)）:：．。]?$"#, options: .regularExpression) != nil
     }
 
     private nonisolated static func startsWithStepMarker(_ line: String) -> Bool {
-        stripBullet(line).range(of: stepMarkerPattern, options: .regularExpression) != nil
+        let stripped = stripBullet(line)
+        if let first = stripped.first, isKeycapStepMarker(first) {
+            return true
+        }
+        return stripped.range(of: stepMarkerPattern, options: .regularExpression) != nil
+    }
+
+    /// Foundation の正規表現は「8️⃣」の variation selector と combining keycap を
+    /// 環境によって安定して照合できないため、先頭の書記素のみを判定する。
+    private nonisolated static func isKeycapStepMarker(_ character: Character) -> Bool {
+        let scalars = Array(character.unicodeScalars.map(\.value))
+        guard scalars.count == 2 || scalars.count == 3,
+              let digit = scalars.first,
+              (0x30...0x39).contains(digit),
+              scalars.last == 0x20E3 else {
+            return false
+        }
+        return scalars.count == 2 || scalars[1] == 0xFE0F
     }
 
     private nonisolated static var stepMarkerPattern: String {
