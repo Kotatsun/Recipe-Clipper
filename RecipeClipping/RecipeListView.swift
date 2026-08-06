@@ -213,7 +213,7 @@ struct RecipeListView: View {
     }
 
     private var headerBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 14) {
             Text("Recipe Clipper")
                 .font(.system(size: 34, weight: .bold, design: .serif))
                 .foregroundStyle(
@@ -230,6 +230,9 @@ struct RecipeListView: View {
             }
             .font(.footnote.weight(.medium))
             .foregroundStyle(.secondary)
+
+            AchievementSpotlight(recipes: recipes)
+                .padding(.top, 2)
         }
         .padding(.top, 6)
         .padding(.horizontal, 16)
@@ -459,7 +462,7 @@ private struct BackupRestoreSelection: Identifiable {
     var url: URL
 }
 
-private struct CardPressStyle: ButtonStyle {
+struct CardPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.965 : 1)
