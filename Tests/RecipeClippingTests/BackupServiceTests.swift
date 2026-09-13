@@ -87,6 +87,27 @@ final class BackupServiceTests: XCTestCase {
         )
     }
 
+    func testArchiveContainsPortableFormatMetadata() throws {
+        let context = try makeContext()
+        let recipe = makeSampleRecipe()
+        context.insert(recipe)
+        try context.save()
+
+        let archiveData = try BackupService.makeArchiveData(
+            from: [recipe],
+            imagesDirectoryURL: tempRoot.appendingPathComponent("no-images", isDirectory: true)
+        )
+        let expandedURL = tempRoot.appendingPathComponent("metadata-expanded", isDirectory: true)
+        try FileManager.default.createDirectory(at: expandedURL, withIntermediateDirectories: true)
+        try SimpleZipArchive.extract(archiveData, to: expandedURL)
+
+        let jsonData = try Data(contentsOf: expandedURL.appendingPathComponent("backup.json"))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        XCTAssertEqual(root["format"] as? String, "recipeclipper")
+        XCTAssertEqual(root["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(root["formatVersion"] as? Int, 2)
+    }
+
     func testRestoreReplacesExistingRecipesAndImages() throws {
         let sourceImagesURL = try makeImagesDirectory(named: "source-images")
         try Data("new-image".utf8).write(to: sourceImagesURL.appendingPathComponent("new.jpg"))

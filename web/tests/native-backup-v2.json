@@ -1,0 +1,49 @@
+{
+  "formatVersion": 2,
+  "exportedAt": "2026-09-14T00:00:00.000Z",
+  "recipes": [
+    {
+      "id": "8e2be5d6-5ff9-4c5f-8891-4d26d5c2f1ab",
+      "title": "テスト煮物",
+      "summary": "概要テキスト",
+      "sourceURL": "https://example.com/recipe/1",
+      "sourceHost": "example.com",
+      "sourceImageURL": "https://example.com/hero.jpg",
+      "imagePath": "hero.jpg",
+      "notes": "自分メモ",
+      "tags": ["和食", "煮物"],
+      "servings": "2人分",
+      "ingredients": ["にんじん 1本", "だいこん 1/2本"],
+      "instructions": ["切る", "煮る"],
+      "checkedIngredients": ["にんじん 1本"],
+      "normalizedSourceURL": "https://example.com/recipe/1",
+      "sourceKind": "web",
+      "isFavorite": true,
+      "rating": 4,
+      "wantsRemake": true,
+      "extractedRawText": "材料\nにんじん 1本",
+      "rawImportedText": "材料\nにんじん 1本",
+      "rawImportedHTML": "<p>材料</p>",
+      "importedTextSource": "articleCandidate",
+      "extractionConfidence": 0.75,
+      "extractionWarnings": [],
+      "ingredientSource": "jsonLD",
+      "instructionSource": "jsonLD",
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "updatedAt": "2026-02-03T04:05:06.000Z",
+      "cookLogs": [
+        {
+          "id": "e5b9c1a3-9b9b-4fbf-9eab-a1d23cf17c22",
+          "cookedAt": "2026-02-04T05:06:07.000Z",
+          "memo": "おいしくできた",
+          "imagePath": "cook.jpg",
+          "rating": 5,
+          "improvementMemo": "次は塩少なめ",
+          "arrangementMemo": "豚肉を追加",
+          "futureCookLogField": {"kept": true}
+        }
+      ],
+      "futureRecipeField": {"kept": true}
+    }
+  ]
+}

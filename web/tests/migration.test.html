@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RecipeClipper migration tests</title>
+    <style>body{font:16px system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}li{margin:.45rem 0}.pass{color:#176b45}.fail{color:#a3312b}</style>
+  </head>
+  <body>
+    <h1>RecipeClipper migration tests</h1>
+    <p>Native fixture → portable parser → web export → portable parser.</p>
+    <ol id="results"></ol>
+    <script type="module">
+      import { inspectBackupJSON, parseBackupJSON, semanticDifferences, makePortableBackup, backupJSONString } from "../portable.js";
+      import { createStoreZip, readStoreZip } from "../zip.js";
+
+      const resultNode = document.querySelector("#results");
+      const checks = [];
+      const check = (name, condition) => checks.push({ name, condition });
+      const fixture = await fetch("./native-backup-v2.json").then((response) => response.json());
+      const inspected = inspectBackupJSON(fixture);
+      check("current native backup without format/schema metadata is accepted", inspected.issues.length === 0);
+      const parsed = parseBackupJSON(fixture);
+      const recipe = parsed.recipes[0];
+      check("recipe count is preserved", parsed.recipes.length === 1);
+      check("recipe ID is preserved", recipe.id === fixture.recipes[0].id);
+      check("ingredient order is preserved", recipe.ingredients.join("|") === fixture.recipes[0].ingredients.join("|"));
+      check("instruction order is preserved", recipe.instructions.join("|") === fixture.recipes[0].instructions.join("|"));
+      check("CookLog ID and date are preserved", recipe.cookLogs[0].id === fixture.recipes[0].cookLogs[0].id && recipe.cookLogs[0].cookedAt === fixture.recipes[0].cookLogs[0].cookedAt);
+      check("unknown recipe field is retained", recipe._unknownFields.futureRecipeField.kept === true);
+      check("unknown CookLog field is retained", recipe.cookLogs[0]._unknownFields.futureCookLogField.kept === true);
+      const exported = makePortableBackup(parsed.recipes);
+      const reparsed = parseBackupJSON(exported);
+      check("web export has portable metadata", exported.format === "recipeclipper" && exported.schemaVersion === 1);
+      check("round-trip has semantic equivalence", semanticDifferences(parsed.recipes, reparsed.recipes).length === 0);
+      const duplicated = structuredClone(fixture);
+      duplicated.recipes.push(structuredClone(duplicated.recipes[0]));
+      check("duplicate IDs are rejected", inspectBackupJSON(duplicated).issues.some((issue) => issue.includes("duplicate recipe id")));
+      const zip = createStoreZip([
+        { name: "backup.json", data: new TextEncoder().encode(backupJSONString(parsed.recipes)) },
+        { name: "RecipeImages/hero.jpg", data: new Uint8Array([1, 2, 3, 4]) },
+      ]);
+      const zipEntries = readStoreZip(zip);
+      check("store-only ZIP is readable", zipEntries.some((entry) => entry.name === "backup.json"));
+      check("image path in ZIP is preserved", zipEntries.some((entry) => entry.name === "RecipeImages/hero.jpg" && entry.data.length === 4));
+      resultNode.innerHTML = checks.map(({ name, condition }) => `<li class="${condition ? "pass" : "fail"}">${condition ? "PASS" : "FAIL"} — ${name}</li>`).join("");
+      if (checks.some(({ condition }) => !condition)) throw new Error("Migration test failed");
+    </script>
+  </body>
+</html>

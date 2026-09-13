@@ -70,3 +70,18 @@ OCR処理は端末内で完結し、選択画像を外部サービスへ送信�
 - 新規フィールドはデフォルト値つきで追加する
 - 破壊的なモデル変更が必要な場合はMigrationPlanを追加する
 - Bundle IDを変更しない
+
+## Web版 / PWAへの移行
+
+既存SwiftData版を削除せず、`web/` にlocal-firstのRecipeClipper Web/PWAを追加しています。既存iOS版はすでにレシピ・CookLog・画像を含むZIPバックアップを書き出せるため、そのZIPをWeb版で検証付きImportできます。
+
+移行手順、既存モデルの解析、portable JSON schema、IndexedDB、画像移行、semantic equivalence検証、GitHub Pages公開方法は [web/README.md](web/README.md) にまとめています。
+
+要点は次の通りです。
+
+1. iPhone版の `…` → `バックアップを書き出し` でZIPをFilesへ保存する
+2. Web版の `⚙` → `バックアップを読み込む` でZIPを選ぶ
+3. 検証結果を確認して `この内容で上書き復元` を実行する
+4. Web版からもportable ZIPを再度書き出し、新しい端末の復旧用に保管する
+
+Web版は `web/` をそのままGitHub Pagesへ配信でき、常設Node.js server、Firebase、Supabase、ログインは使いません。

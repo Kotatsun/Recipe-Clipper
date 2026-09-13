@@ -151,11 +151,17 @@ enum BackupService {
 }
 
 private struct RecipeClipperBackupPayload: Codable {
+    /// Portable format metadata. These fields are additive so existing
+    /// formatVersion 1/2 backups remain readable by the native app.
+    var format: String
+    var schemaVersion: Int
     var formatVersion: Int
     var exportedAt: Date
     var recipes: [RecipeBackup]
 
     enum CodingKeys: String, CodingKey {
+        case format
+        case schemaVersion
         case formatVersion
         case exportedAt
         case recipes
@@ -163,6 +169,8 @@ private struct RecipeClipperBackupPayload: Codable {
 
     @MainActor
     init(recipes: [Recipe]) {
+        self.format = "recipeclipper"
+        self.schemaVersion = 1
         self.formatVersion = 2
         self.exportedAt = Date()
         self.recipes = recipes
@@ -172,6 +180,8 @@ private struct RecipeClipperBackupPayload: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decodeIfPresent(String.self, forKey: .format) ?? "recipeclipper"
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
         exportedAt = try container.decodeIfPresent(Date.self, forKey: .exportedAt) ?? .distantPast
         recipes = try container.decodeIfPresent([RecipeBackup].self, forKey: .recipes) ?? []
