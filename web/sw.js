@@ -1,9 +1,9 @@
-const CACHE_NAME = "recipeclipper-shell-v6";
+const CACHE_NAME = "recipeclipper-shell-v7";
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js?v=4",
+  "./app.js?v=5",
   "./portable.js",
   "./zip.js",
   "./db.js",

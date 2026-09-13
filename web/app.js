@@ -439,9 +439,12 @@ function ratingControl(rating, id, logId = "") {
 }
 
 function cookLogMarkup(recipe, log) {
+  const photo = log.imagePath
+    ? `<div class="log-image"><img class="recipe-image" data-image="${attr(log.imagePath)}" alt="作った記録の写真"></div>`
+    : `<div class="log-image log-image-placeholder">♨</div>`;
   return `<article class="cook-log-card">
     <div class="log-top">
-      ${log.imagePath ? imageMarkup({ imagePath: log.imagePath, title: "作った記録", sourceImageURL: null }, "log-image") : `<div class="log-image log-image-placeholder">♨</div>`}
+      ${photo}
       <div><strong>${esc(formatDate(log.cookedAt))}</strong>${log.rating ? `<div class="stars">${stars(log.rating)}</div>` : ""}</div>
     <span class="log-menu"><button class="icon-button small" data-action="edit-cook-log" data-id="${attr(recipe.id)}" data-log-id="${attr(log.id)}" aria-label="記録を編集">⋯</button><button class="icon-button small" data-action="delete-cook-log" data-id="${attr(recipe.id)}" data-log-id="${attr(log.id)}" aria-label="記録を削除">⌫</button></span>
     </div>
@@ -701,6 +704,8 @@ async function hydrateImages() {
       node.addEventListener("error", () => {
         node.replaceWith(Object.assign(document.createElement("div"), { className: "image-placeholder image-failed", innerHTML: "<span>✦</span>" }));
       }, { once: true });
+    } else if (fileName && node.isConnected) {
+      node.replaceWith(Object.assign(document.createElement("div"), { className: "image-placeholder image-failed", innerHTML: "<span>✦</span>" }));
     }
   }));
 }
