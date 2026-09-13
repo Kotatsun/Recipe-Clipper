@@ -75,6 +75,7 @@ a { color: inherit; }
 .button-danger { color: #fff; background: #b7443c; box-shadow: 0 8px 16px rgba(183, 68, 60, .17); }
 .button-small { min-height: 2.25rem; padding: .43rem .7rem; font-size: .82rem; }
 .page { width: min(100% - 2rem, 56rem); margin: 0 auto; }
+.detail-page, .achievement-page { touch-action: pan-y; }
 
 .intro-panel { padding: 2.1rem .3rem 1.25rem; }
 .eyebrow, .section-kicker { font-size: .68rem; font-weight: 850; letter-spacing: .18em; color: var(--muted); }

@@ -117,6 +117,7 @@ const imageURLs = new Map();
 let pendingImagePreviewURL = null;
 let renderFrame = null;
 let pendingSearchSelection = null;
+let backSwipe = null;
 
 function esc(value) {
   return String(value ?? "")
@@ -309,10 +310,12 @@ function headerMarkup({ detail = false } = {}) {
 }
 
 function achievementHeaderMarkup(title) {
+  const backAction = state.achievementPage === "titles" ? "back" : "home";
+  const backLabel = state.achievementPage === "titles" ? "実績一覧へ戻る" : "レシピ一覧へ戻る";
   return `
     <header class="topbar achievement-topbar">
       <div class="topbar-leading">
-        <button class="icon-button" data-action="home" aria-label="レシピ一覧へ戻る">←</button>
+        <button class="icon-button" data-action="${backAction}" aria-label="${backLabel}">←</button>
         <div class="page-title-lockup"><span class="eyebrow">KITCHEN JOURNEY</span><strong>${esc(title)}</strong></div>
       </div>
       <div class="topbar-actions">
@@ -354,7 +357,6 @@ function statsMarkup() {
     <section class="intro-panel">
       <div class="eyebrow">PERSONAL COOKING ARCHIVE</div>
       <h1>大切なレシピを、<br><em>いつでも</em>手元に。</h1>
-      <p>通信がなくても、あなたの料理帖はここにあります。</p>
       <div class="stat-strip">
         <span><strong>${state.recipes.length}</strong>品</span>
         <span><strong>${totalCooks()}</strong>回作った</span>
@@ -1227,6 +1229,41 @@ function printRecipes(recipes) {
   setTimeout(() => window.print?.(), 240);
 }
 
+function navigateBack() {
+  if (state.modal || state.printPayload) return;
+  if (state.achievementPage === "titles") {
+    state.achievementPage = "achievements";
+    render();
+    return;
+  }
+  state.selectedId = null;
+  state.achievementPage = null;
+  render();
+}
+
+function beginBackSwipe(event) {
+  if (state.modal || state.printPayload || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  if (!state.selectedId && !state.achievementPage) return;
+  if (event.target.closest("input, textarea, select, button, a, .chip-row, .tag-row, .tag-suggestion-row")) return;
+  const edge = touch.clientX <= 34 ? "right" : touch.clientX >= window.innerWidth - 34 ? "left" : "any";
+  backSwipe = { x: touch.clientX, y: touch.clientY, edge };
+}
+
+function finishBackSwipe(event) {
+  if (!backSwipe) return;
+  const touch = event.changedTouches[0];
+  const distanceX = touch.clientX - backSwipe.x;
+  const distanceY = Math.abs(touch.clientY - backSwipe.y);
+  const directionMatches = backSwipe.edge === "right"
+    ? distanceX >= 72
+    : backSwipe.edge === "left"
+      ? distanceX <= -72
+      : Math.abs(distanceX) >= 100;
+  backSwipe = null;
+  if (directionMatches && Math.abs(distanceX) > distanceY * 1.15) navigateBack();
+}
+
 async function handleClick(event) {
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) return;
@@ -1243,6 +1280,7 @@ async function handleClick(event) {
     return;
   }
   if (action === "home") { state.selectedId = null; state.achievementPage = null; state.modal = null; render(); return; }
+  if (action === "back") { navigateBack(); return; }
   if (action === "achievements") { state.selectedId = null; state.achievementPage = "achievements"; state.modal = null; render(); return; }
   if (action === "titles") { state.selectedId = null; state.achievementPage = "titles"; state.modal = null; render(); return; }
   if (action === "append-tag") {
@@ -1389,6 +1427,9 @@ app?.addEventListener("click", handleClick);
 app?.addEventListener("submit", handleSubmit);
 app?.addEventListener("change", handleChange);
 app?.addEventListener("input", handleInput);
+document.addEventListener("touchstart", beginBackSwipe, { passive: true });
+document.addEventListener("touchend", finishBackSwipe, { passive: true });
+document.addEventListener("touchcancel", () => { backSwipe = null; }, { passive: true });
 const systemThemeMedia = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
 systemThemeMedia?.addEventListener?.("change", () => {
   if (state.theme === "system") applyTheme();
