@@ -18,6 +18,16 @@ import {
   putRecipe,
   replaceAllData,
 } from "./db.js";
+import {
+  ACHIEVEMENT_CATEGORIES,
+  achievementProgress,
+  achievementsFor,
+  equippedTitle,
+  nextAchievement,
+  readSelectedTitle,
+  titleMilestones,
+  writeSelectedTitle,
+} from "./achievements.js";
 
 const app = document.querySelector("#app");
 const textDecoder = new TextDecoder();
@@ -70,13 +80,24 @@ function readThemePreference() {
   }
 }
 
+function readSortPreference() {
+  try {
+    const saved = localStorage.getItem("recipeclipper-sort");
+    return SORTS.some(([value]) => value === saved) ? saved : "recentlyUpdated";
+  } catch {
+    return "recentlyUpdated";
+  }
+}
+
 const state = {
   recipes: [],
   selectedId: null,
   query: "",
   filter: "all",
   tag: null,
-  sort: "recentlyUpdated",
+  sort: readSortPreference(),
+  achievementPage: null,
+  selectedTitleID: readSelectedTitle(),
   modal: null,
   editorMode: "manual",
   urlPrefill: null,
@@ -89,6 +110,7 @@ const state = {
   busy: false,
   error: null,
   theme: readThemePreference(),
+  printPayload: null,
 };
 
 const imageURLs = new Map();
@@ -286,6 +308,19 @@ function headerMarkup({ detail = false } = {}) {
     </header>`;
 }
 
+function achievementHeaderMarkup(title) {
+  return `
+    <header class="topbar achievement-topbar">
+      <div class="topbar-leading">
+        <button class="icon-button" data-action="home" aria-label="レシピ一覧へ戻る">←</button>
+        <div class="page-title-lockup"><span class="eyebrow">KITCHEN JOURNEY</span><strong>${esc(title)}</strong></div>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-button" data-action="settings" aria-label="設定とバックアップ">⚙</button>
+      </div>
+    </header>`;
+}
+
 function filterChips() {
   return FILTERS.map(([value, label]) => `
     <button class="chip ${state.filter === value ? "chip-active" : ""}" data-action="filter" data-filter="${value}">${label}</button>
@@ -301,9 +336,20 @@ function tagChips() {
     </div>`;
 }
 
+function tagEditorSuggestions(recipe) {
+  const existing = new Set(recipeTags(recipe).map((tag) => tag.toLocaleLowerCase()));
+  const suggestions = allTags().filter((tag) => !existing.has(tag.toLocaleLowerCase())).slice(0, 8);
+  if (!suggestions.length) return "";
+  return `<div class="tag-suggestion-row" aria-label="よく使うタグ">${suggestions.map((tag) => `<button type="button" class="chip chip-tag" data-action="append-tag" data-tag="${attr(tag)}">＋ ${esc(tag)}</button>`).join("")}</div>`;
+}
+
 function statsMarkup() {
   const cookedRecipes = state.recipes.filter((recipe) => recipe.cookLogs?.length).length;
   const favoriteCount = state.recipes.filter((recipe) => recipe.isFavorite).length;
+  const achievements = achievementsFor(state.recipes);
+  const progress = achievementProgress(achievements);
+  const next = nextAchievement(achievements);
+  const spotlight = next ?? achievements.at(-1);
   return `
     <section class="intro-panel">
       <div class="eyebrow">PERSONAL COOKING ARCHIVE</div>
@@ -315,7 +361,154 @@ function statsMarkup() {
         <span><strong>${cookedRecipes}</strong>品を調理済み</span>
         <span><strong>${favoriteCount}</strong>お気に入り</span>
       </div>
+      <button class="achievement-spotlight" data-action="achievements">
+        <span class="achievement-spotlight-icon">${achievementGlyph(spotlight?.symbol ?? "trophy.fill")}</span>
+        <span class="achievement-spotlight-copy"><span class="eyebrow">KITCHEN JOURNEY</span><strong>${spotlight?.isUnlocked ? "すべての実績を達成しました" : `次の実績：${esc(spotlight?.title ?? "キッチンの軌跡")}`}</strong><small>${progress.unlocked} / ${progress.total} 実績 ・ キッチンの軌跡を見る</small></span>
+        <span class="achievement-spotlight-arrow">›</span>
+      </button>
     </section>`;
+}
+
+function achievementGlyph(symbol) {
+  const glyphs = {
+    "archivebox.fill": "▣",
+    "bookmark.fill": "🔖",
+    "book.closed.fill": "▤",
+    "books.vertical.fill": "▥",
+    "building.columns.fill": "▥",
+    "camera.fill": "◉",
+    "calendar.badge.checkmark": "✓",
+    "calendar.circle.fill": "◷",
+    checklist: "☷",
+    "circle.grid.3x3.fill": "⠿",
+    "flame.circle.fill": "♨",
+    "flame.fill": "♨",
+    "fork.knife": "♜",
+    "frying.pan.fill": "◒",
+    "hand.thumbsup.fill": "☝",
+    "heart.circle.fill": "♥",
+    "heart.fill": "♥",
+    "house.and.flag.fill": "⌂",
+    "leaf.fill": "✦",
+    map: "⌁",
+    "map.fill": "⌁",
+    medal: "✹",
+    "medal.fill": "✹",
+    note: "▤",
+    "note.text": "▤",
+    "pencil.and.scribble": "✎",
+    "pencil.line": "✎",
+    "photo.on.rectangle.angled": "▧",
+    "photo.stack.fill": "▧",
+    repeat: "↻",
+    "repeat.circle.fill": "↻",
+    safari: "✥",
+    "safari.fill": "✥",
+    sparkles: "✦",
+    stars: "✦",
+    "square.grid.2x2.fill": "⊞",
+    "star.circle.fill": "★",
+    "star.fill": "★",
+    "sun.max.fill": "☼",
+    "tag.circle.fill": "♢",
+    "tag.fill": "♢",
+    trophy: "♛",
+    "trophy.fill": "♛",
+    "text.book.closed.fill": "▤",
+    "table.furniture.fill": "▦",
+  };
+  return glyphs[symbol] ?? "✦";
+}
+
+function achievementProgressBar(current, target, className = "") {
+  const ratio = target > 0 ? Math.min(current / target, 1) : 1;
+  return `<div class="achievement-progress ${className}" aria-hidden="true"><span style="width:${Math.round(ratio * 100)}%"></span></div>`;
+}
+
+function achievementCardMarkup(achievement) {
+  return `
+    <article class="achievement-card tone-${achievement.tone} ${achievement.isUnlocked ? "is-unlocked" : "is-locked"}">
+      <div class="achievement-card-top"><span class="achievement-medallion">${achievementGlyph(achievement.symbol)}</span><span class="achievement-status">${achievement.isUnlocked ? "✓" : "🔒"}</span></div>
+      <span class="achievement-eyebrow">${esc(achievement.eyebrow)}</span>
+      <h3>${esc(achievement.title)}</h3>
+      <p>${esc(achievement.detail)}</p>
+      <div class="achievement-card-progress"><span>${esc(achievement.progressText)}</span><span>${achievement.isUnlocked ? "達成" : `${Math.round(achievement.progress * 100)}%`}</span></div>
+      ${achievementProgressBar(achievement.current, achievement.target)}
+    </article>`;
+}
+
+function achievementSeriesMarkup(category, achievements) {
+  const items = achievements.filter((achievement) => achievement.category === category.id);
+  const unlocked = items.filter((achievement) => achievement.isUnlocked).length;
+  return `
+    <section class="achievement-series">
+      <div class="achievement-series-heading"><div><span class="achievement-category-symbol">${achievementGlyph(category.symbol)}</span><span class="eyebrow">${esc(category.subtitle)}</span><h2>${esc(category.title)}</h2></div><span class="achievement-series-count">${unlocked} / ${items.length}</span></div>
+      <div class="achievement-grid">${items.map(achievementCardMarkup).join("")}</div>
+    </section>`;
+}
+
+function achievementsView() {
+  const achievements = achievementsFor(state.recipes);
+  const progress = achievementProgress(achievements);
+  const currentTitle = equippedTitle(achievements, state.selectedTitleID);
+  const next = nextAchievement(achievements);
+  return `
+    ${achievementHeaderMarkup("キッチンの軌跡")}
+    <main class="achievement-page">
+      <section class="achievement-cabinet-hero">
+        <div class="achievement-ring" style="--progress:${Math.round(progress.ratio * 100)}%"><span>${progress.unlocked}<small>/${progress.total}</small></span></div>
+        <div class="achievement-cabinet-copy"><span class="eyebrow">CURRENT KITCHEN TITLE</span><h1>${esc(currentTitle.name)}</h1><p>料理の記録から、あなたの台所の歩みを集めています。</p><button class="button button-quiet achievement-title-link" data-action="titles">称号図鑑を見る ›</button></div>
+      </section>
+      ${next ? `<section class="achievement-next-card"><div class="achievement-next-icon tone-${next.tone}">${achievementGlyph(next.symbol)}</div><div class="achievement-next-copy"><span class="eyebrow">NEXT ACHIEVEMENT</span><h2>${esc(next.title)}</h2><p>${esc(next.detail)}</p>${achievementProgressBar(next.current, next.target)}<small>${esc(next.progressText)} ・ もう少しで解禁</small></div></section>` : `<section class="achievement-next-card all-unlocked"><div class="achievement-next-icon tone-gold">♛</div><div class="achievement-next-copy"><span class="eyebrow">ALL ACHIEVEMENTS</span><h2>台所の伝説</h2><p>38個すべての実績を達成しました。</p><small>料理の記録を続けて、あなたの料理帖を育てましょう。</small></div></section>`}
+      <section class="achievement-total-line"><span><strong>${progress.unlocked}</strong> / ${progress.total} 実績</span><span>達成率 ${Math.round(progress.ratio * 100)}%</span></section>
+      ${ACHIEVEMENT_CATEGORIES.map((category) => achievementSeriesMarkup(category, achievements)).join("")}
+    </main>
+    ${state.modal ? modalMarkup() : ""}`;
+}
+
+function titleGroupMarkup(group, milestones) {
+  const groupMeta = {
+    journey: ["料理人の歩み", "勲章の総獲得数で解禁"],
+    specialist: ["シリーズ特化", "ひとつの分野を深く究めて解禁"],
+    mastery: ["シリーズ制覇", "シリーズの勲章をすべて集めて解禁"],
+  }[group];
+  return `<section class="title-group"><div class="title-group-heading"><div><span class="eyebrow">${esc(group.toUpperCase())}</span><h2>${esc(groupMeta[0])}</h2><p>${esc(groupMeta[1])}</p></div></div><div class="title-list">${milestones.filter((milestone) => milestone.group === group).map((milestone) => `<button class="title-row ${milestone.isUnlocked ? "is-unlocked" : "is-locked"} ${state.selectedTitleID === milestone.title.id ? "is-equipped" : ""}" data-action="equip-title" data-title-id="${attr(milestone.title.id)}" ${milestone.isUnlocked ? "" : "disabled"}><span class="title-row-icon tone-${milestone.title.tone}">${achievementGlyph(milestone.title.symbol)}</span><span class="title-row-copy"><strong>${esc(milestone.title.name)}</strong><small>${esc(milestone.condition)}</small>${achievementProgressBar(milestone.current, milestone.target)}</span><span class="title-row-status">${state.selectedTitleID === milestone.title.id ? "装備中" : milestone.isUnlocked ? "解禁" : esc(milestone.progressText)}</span></button>`).join("")}</div></section>`;
+}
+
+function titlesView() {
+  const achievements = achievementsFor(state.recipes);
+  const currentTitle = equippedTitle(achievements, state.selectedTitleID);
+  const milestones = titleMilestones(achievements);
+  return `
+    ${achievementHeaderMarkup("称号図鑑")}
+    <main class="achievement-page titles-page">
+      <section class="equipped-title-card tone-${currentTitle.tone}"><span class="equipped-title-icon">${achievementGlyph(currentTitle.symbol)}</span><div><span class="eyebrow">EQUIPPED KITCHEN TITLE</span><h1>${esc(currentTitle.name)}</h1><p>解禁した称号を選ぶと、キッチンの軌跡に表示できます。</p></div><button class="button button-quiet" data-action="achievements">実績一覧へ</button></section>
+      ${titleGroupMarkup("journey", milestones)}
+      ${titleGroupMarkup("specialist", milestones)}
+      ${titleGroupMarkup("mastery", milestones)}
+    </main>
+    ${state.modal ? modalMarkup() : ""}`;
+}
+
+function printImageMarkup(recipe) {
+  if (!recipe.imagePath && !recipe.sourceImageURL) return "";
+  const fallback = recipe.sourceImageURL ? ` data-fallback="${attr(recipe.sourceImageURL)}"` : "";
+  return `<img class="print-recipe-image" data-image="${attr(recipe.imagePath ?? "")}"${fallback} alt="${attr(recipe.title)}">`;
+}
+
+function printRecipeMarkup(recipe) {
+  const logs = [...(recipe.cookLogs ?? [])].sort((left, right) => String(right.cookedAt).localeCompare(String(left.cookedAt)));
+  return `<article class="print-recipe">
+    <header class="print-recipe-header"><div><span class="eyebrow">${esc(sourceLabel(recipe.sourceKind))}</span><h2>${esc(recipe.title || "無題のレシピ")}</h2>${recipe.summary ? `<p>${esc(recipe.summary)}</p>` : ""}</div>${printImageMarkup(recipe)}</header>
+    ${recipe.servings ? `<p class="print-servings">${esc(recipe.servings)}</p>` : ""}
+    <div class="print-recipe-columns"><section><h3>材料</h3>${recipe.ingredients?.length ? `<ul>${recipe.ingredients.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : `<p>材料情報なし</p>`}</section><section><h3>作り方</h3>${recipe.instructions?.length ? `<ol>${recipe.instructions.map((line) => `<li>${esc(line)}</li>`).join("")}</ol>` : `<p>作り方情報なし</p>`}</section></div>
+    ${recipe.notes || recipeTags(recipe).length ? `<section class="print-notes"><h3>メモとタグ</h3>${recipe.notes ? `<p>${esc(recipe.notes)}</p>` : ""}${recipeTags(recipe).length ? `<p>${recipeTags(recipe).map((tag) => `#${esc(tag)}`).join("　")}</p>` : ""}</section>` : ""}
+    ${logs.length ? `<section class="print-logs"><h3>作った記録</h3>${logs.map((log) => `<div class="print-log"><strong>${esc(formatDate(log.cookedAt))}</strong>${log.rating ? `　${stars(log.rating)}` : ""}${log.memo ? `<p>メモ：${esc(log.memo)}</p>` : ""}${log.arrangementMemo ? `<p>アレンジ：${esc(log.arrangementMemo)}</p>` : ""}${log.improvementMemo ? `<p>次回改善：${esc(log.improvementMemo)}</p>` : ""}</div>`).join("")}</section>` : ""}
+  </article>`;
+}
+
+function printView(recipes) {
+  return `<main class="print-document"><header class="print-document-header"><span class="eyebrow">RECIPECLIPPER · PERSONAL COOKING ARCHIVE</span><h1>わたしの料理帖</h1><p>${recipes.length}品 ・ ${formatDateTime(new Date().toISOString())} 出力</p></header>${recipes.map(printRecipeMarkup).join("")}</main>`;
 }
 
 function recipeCard(recipe, featured = false) {
@@ -407,6 +600,7 @@ function detailView(recipe) {
             <button class="toggle-button ${recipe.isFavorite ? "is-on favorite" : ""}" data-action="toggle-favorite" data-id="${attr(recipe.id)}">♥ <span>お気に入り</span></button>
             <button class="toggle-button ${recipe.wantsRemake ? "is-on remake" : ""}" data-action="toggle-remake" data-id="${attr(recipe.id)}">↺ <span>また作りたい</span></button>
             <button class="toggle-button" data-action="share-recipe" data-id="${attr(recipe.id)}">↗ <span>共有</span></button>
+            <button class="toggle-button" data-action="print-recipe" data-id="${attr(recipe.id)}">▤ <span>PDF/印刷</span></button>
           </div>
           <div class="rating-line"><span>評価</span>${ratingControl(recipe.rating, recipe.id)}</div>
           <div class="meta-line">${recipe.cookLogs?.length ?? 0}回作成${lastCookedAt(recipe) ? ` ・ 最終: ${esc(formatDate(lastCookedAt(recipe)))}` : ""}</div>
@@ -471,7 +665,7 @@ function urlImportModal() {
   return modalShell("URLから取り込む", `
     <form class="editor-form url-import-form" data-form="url-import">
       <div class="form-section url-import-hero"><div class="method-icon method-icon-indigo">↗</div><div><strong>リンクを貼るだけ</strong><p>URLを元レシピとして保存し、内容を確認しながら入力できます。</p></div></div>
-      <div class="form-section"><label class="field-label">レシピURL <span class="required">必須</span><input name="sourceURL" type="url" required placeholder="https://example.com/recipe" autocomplete="url" autocapitalize="none"></label><p class="editor-help">Web版では外部サイトの制限により、URL先の本文を自動取得できない場合があります。その場合もURLは保持されます。</p></div>
+      <div class="form-section"><label class="field-label">レシピURL <span class="required">必須</span><input name="sourceURL" type="url" required placeholder="https://example.com/recipe" autocomplete="url" autocapitalize="none"></label><label class="field-label">本文を貼り付け（任意）<textarea name="rawImportedText" data-field="raw" rows="8" placeholder="InstagramのキャプションやWebページ本文を貼り付け">${esc(state.urlPrefill?.rawImportedText ?? "")}</textarea></label><p class="editor-help">外部サイトが自動取得を許可していない場合も、URLと貼り付けた本文を保存できます。材料・作り方は次の画面で手直ししてください。</p></div>
       <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">戻る</button><button type="submit" class="button button-primary">このURLでレシピを書く</button></div>
     </form>`, true, "modal-editor");
 }
@@ -512,7 +706,7 @@ function settingsModal() {
     <div class="settings-stack">
       <section class="settings-hero"><span class="settings-icon">⌘</span><div><h3>local-first RecipeClipper</h3><p>レシピはこの端末のIndexedDBに保存され、サーバーへ送信されません。</p></div></section>
       <section class="settings-card appearance-card"><div class="settings-card-heading"><div><span class="section-kicker indigo">APPEARANCE</span><h3>表示</h3></div></div><label class="field-label appearance-field">テーマ<select data-role="theme" aria-label="テーマ">${THEME_OPTIONS.map(([value, label]) => `<option value="${value}" ${state.theme === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><p>元のiPhone版と同じく、初期状態は端末のライト／ダーク設定に合わせます。</p></section>
-      <section class="settings-card"><div class="settings-card-heading"><div><span class="section-kicker tomato">BACKUP</span><h3>データを守る</h3></div><span class="backup-badge">portable</span></div><p>iPhone版のZIP、またはWeb版のZIPを読み込みます。復元は現在のデータを置き換えます。</p><div class="button-row"><button class="button button-primary" data-action="export-backup" ${state.busy ? "disabled" : ""}>↓ バックアップを書き出す</button><button class="button button-secondary" data-action="choose-backup" ${state.busy ? "disabled" : ""}>↑ バックアップを読み込む</button></div><input id="backup-file" type="file" accept=".zip,.json,application/zip,application/json" hidden></section>
+      <section class="settings-card"><div class="settings-card-heading"><div><span class="section-kicker tomato">BACKUP</span><h3>データを守る</h3></div><span class="backup-badge">portable</span></div><p>iPhone版のZIP、またはWeb版のZIPを読み込みます。復元は現在のデータを置き換えます。</p><div class="button-row"><button class="button button-primary" data-action="export-backup" ${state.busy ? "disabled" : ""}>↓ バックアップを書き出す</button><button class="button button-secondary" data-action="choose-backup" ${state.busy ? "disabled" : ""}>↑ バックアップを読み込む</button><button class="button button-quiet" data-action="print-all">▤ 全レシピをPDF/印刷</button></div><input id="backup-file" type="file" accept=".zip,.json,application/zip,application/json" hidden></section>
       ${preview ? `<section class="import-preview"><div class="preview-heading"><div><span class="section-kicker green">IMPORT CHECK</span><h3>復元前の検証結果</h3></div><span class="validation-pill ${preview.roundTrip?.valid && !preview.errors?.length ? "valid" : "invalid"}">${preview.roundTrip?.valid && !preview.errors?.length ? "検証OK" : "要確認"}</span></div><div class="preview-stats"><span><strong>${previewSummary.recipeCount}</strong>レシピ</span><span><strong>${previewSummary.cookLogCount}</strong>CookLog</span><span><strong>${previewSummary.tagCount}</strong>タグ</span><span><strong>${previewSummary.recipeIds.length}</strong>ID保持</span></div>${preview.errors?.length ? `<div class="validation-errors">${preview.errors.map((item) => `<p>⚠ ${esc(item)}</p>`).join("")}</div>` : ""}${previewWarnings.length ? `<div class="validation-warnings">${previewWarnings.map((item) => `<p>• ${esc(item)}</p>`).join("")}</div>` : ""}${preview.roundTrip?.differences?.length ? `<div class="validation-errors">${preview.roundTrip.differences.map((item) => `<p>⚠ ${esc(item)}</p>`).join("")}</div>` : ""}<p class="preview-note">同じバックアップを再度読み込んでもID単位で置き換わるため、二重登録されません。</p><div class="button-row"><button class="button button-danger" data-action="restore-backup" ${preview.errors?.length || !preview.roundTrip?.valid ? "disabled" : ""}>この内容で上書き復元</button><button class="button button-quiet" data-action="discard-import">キャンセル</button></div></section>` : ""}
       <section class="settings-card"><div class="settings-card-heading"><div><span class="section-kicker indigo">VALIDATION</span><h3>移行データを点検</h3></div></div><p>現在のIndexedDBをportable JSONへ変換し、再読込して件数・ID・配列順・全フィールドの意味が一致するか確認します。</p><button class="button button-secondary" data-action="validate-current">現在のデータを検証する</button>${report ? `<div class="validation-result ${report.valid ? "success" : "failure"}">${report.valid ? `✓ ${report.recipeCount}件のsemantic equivalenceを確認しました。` : `⚠ 差分 ${report.differences.length}件: ${report.differences.map(esc).join(" / ")}`}</div>` : ""}</section>
       <section class="settings-card compact-card"><div class="settings-card-heading"><div><span class="section-kicker ember">THIS DEVICE</span><h3>保存状態</h3></div></div>${stats ? `<div class="diagnostic-grid"><span>レシピ <strong>${stats.recipeCount}</strong></span><span>CookLog <strong>${stats.cookLogCount}</strong></span><span>画像 <strong>${stats.imageCount}</strong></span><span>DB v${stats.databaseVersion}</span></div>` : `<p>読み込み中…</p>`}</section>
@@ -536,11 +730,13 @@ function recipeModal() {
   return modalShell(title, `
     <form class="editor-form" data-form="recipe" data-id="${attr(editing?.id ?? "")}" data-mode="${mode}">
       ${editorPhotoSection(recipe, mode, Boolean(editing))}
-      <div class="form-section"><div class="form-section-heading"><span>基本情報</span><small>RecipeClipper</small></div><label class="field-label">レシピ名 <span class="required">必須</span><input name="title" required value="${attr(recipe.title)}" placeholder="例：いつものチキンカレー" autocomplete="off"></label><label class="field-label">ひとこと<textarea name="summary" rows="2" placeholder="味や特徴をメモ">${esc(recipe.summary)}</textarea></label><label class="field-label">何人分 <small>任意</small><input name="servings" value="${attr(recipe.servings)}" placeholder="例：2人分" autocomplete="off"></label>${editing ? `<label class="field-label">登録方法<select name="sourceKind">${SOURCE_KINDS.map(([value, label]) => `<option value="${value}" ${recipe.sourceKind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ""}${!editing && mode === "url" ? `<label class="field-label">元URL <span class="required">必須</span><input name="sourceURL" type="url" required value="${attr(state.urlPrefill?.url ?? "")}" placeholder="https://..." autocomplete="url"></label>` : ""}</div>
-      <div class="form-section"><div class="form-section-heading"><span>材料</span><small>改行ごとに1行</small></div><p class="editor-help">入力中は自由に改行・挿入できます。表示時に改行ごとに分かれます。</p><textarea name="ingredients" rows="7" placeholder="玉ねぎ 1/2個\n鶏もも肉 300g">${esc((recipe.ingredients ?? []).join("\n"))}</textarea></div>
-      <div class="form-section"><div class="form-section-heading"><span>作り方</span><small>改行ごとに1手順</small></div><p class="editor-help">作り方を自由に入力してください。</p><textarea name="instructions" rows="8" placeholder="材料を切る\n鍋で煮る">${esc((recipe.instructions ?? []).join("\n"))}</textarea></div>
-      <div class="form-section"><div class="form-section-heading"><span>仕上げ</span><small>タグと自分用メモ</small></div><label class="field-label">タグ <small>カンマまたは改行で区切る</small><input name="tags" value="${attr((recipe.tags ?? []).join(", "))}" placeholder="平日, 鍋" autocomplete="off"></label><label class="field-label">自分用メモ<textarea name="notes" rows="4" placeholder="次回の調整、家族の好みなど">${esc(recipe.notes)}</textarea></label></div>
-      ${editing ? `<div class="form-section preference-grid"><div class="form-section-heading"><span>お気に入り・評価</span><small>いつでも変更できます</small></div><label class="check-label"><input name="isFavorite" type="checkbox" ${recipe.isFavorite ? "checked" : ""}> ♥ お気に入り</label><label class="check-label"><input name="wantsRemake" type="checkbox" ${recipe.wantsRemake ? "checked" : ""}> ↺ また作りたい</label><label class="field-label">評価${ratingControl(recipe.rating, "form", "")}</label></div><div class="form-section"><div class="form-section-heading"><span>出典</span><small>任意</small></div><label class="field-label">元URL<input name="sourceURL" type="url" value="${attr(recipe.sourceURL)}" placeholder="https://..." autocomplete="url"></label>${recipe.rawImportedText ? `<label class="field-label">取得した元本文<textarea name="rawImportedText" rows="5">${esc(recipe.rawImportedText)}</textarea></label>` : ""}</div>` : ""}
+      <div class="form-section"><div class="form-section-heading"><span>基本情報</span><small>RecipeClipper</small></div><label class="field-label">レシピ名 <span class="required">必須</span><input name="title" required value="${attr(recipe.title)}" placeholder="例：いつものチキンカレー" autocomplete="off"></label><label class="field-label">ひとこと<textarea name="summary" data-field="summary" rows="2" placeholder="味や特徴をメモ">${esc(recipe.summary)}</textarea></label><label class="field-label">何人分 <small>任意</small><input name="servings" value="${attr(recipe.servings)}" placeholder="例：2人分" autocomplete="off"></label>${editing ? `<label class="field-label">登録方法<select name="sourceKind">${SOURCE_KINDS.map(([value, label]) => `<option value="${value}" ${recipe.sourceKind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ""}${!editing && mode === "url" ? `<label class="field-label">元URL <span class="required">必須</span><input name="sourceURL" type="url" required value="${attr(state.urlPrefill?.url ?? "")}" placeholder="https://..." autocomplete="url"></label>` : ""}</div>
+      <div class="form-section"><div class="form-section-heading"><span>材料</span><small>改行ごとに1行</small></div><p class="editor-help">入力中は自由に改行・挿入できます。表示時に改行ごとに分かれます。</p><textarea name="ingredients" data-field="ingredients" rows="7" placeholder="玉ねぎ 1/2個\n鶏もも肉 300g">${esc((recipe.ingredients ?? []).join("\n"))}</textarea></div>
+      <div class="form-section"><div class="form-section-heading"><span>作り方</span><small>改行ごとに1手順</small></div><p class="editor-help">作り方を自由に入力してください。</p><textarea name="instructions" data-field="instructions" rows="8" placeholder="材料を切る\n鍋で煮る">${esc((recipe.instructions ?? []).join("\n"))}</textarea></div>
+      <div class="form-section"><div class="form-section-heading"><span>仕上げ</span><small>タグと自分用メモ</small></div><label class="field-label">タグ <small>カンマまたは改行で区切る</small><input name="tags" value="${attr((recipe.tags ?? []).join(", "))}" placeholder="平日, 鍋" autocomplete="off">${tagEditorSuggestions(recipe)}</label><label class="field-label">自分用メモ<textarea name="notes" data-field="notes" rows="4" placeholder="次回の調整、家族の好みなど">${esc(recipe.notes)}</textarea></label></div>
+      ${!editing && mode === "image" ? `<div class="form-section"><div class="form-section-heading"><span>画像の本文（任意）</span><small>文字起こし結果を貼り付け</small></div><textarea name="rawImportedText" data-field="raw" rows="8" placeholder="画像内の材料や作り方を貼り付けてください">${esc(recipe.rawImportedText)}</textarea><p class="editor-help">iPhone版の端末内OCRに相当する欄です。Web版では画像を端末外へ送らず、文字は貼り付けて保存できます。</p></div>` : ""}
+      ${!editing && mode === "url" ? `<div class="form-section"><div class="form-section-heading"><span>取得した本文（任意）</span><small>貼り付けて保存できます</small></div><textarea name="rawImportedText" data-field="raw" rows="8" placeholder="外部サイトから本文をコピーして貼り付けてください">${esc(state.urlPrefill?.rawImportedText ?? "")}</textarea><p class="editor-help">URL先を自動取得できない場合の代替欄です。材料と作り方は上の欄で確認・修正してから保存してください。</p></div>` : ""}
+      ${editing ? `<div class="form-section preference-grid"><div class="form-section-heading"><span>お気に入り・評価</span><small>いつでも変更できます</small></div><label class="check-label"><input name="isFavorite" type="checkbox" ${recipe.isFavorite ? "checked" : ""}> ♥ お気に入り</label><label class="check-label"><input name="wantsRemake" type="checkbox" ${recipe.wantsRemake ? "checked" : ""}> ↺ また作りたい</label><label class="field-label">評価${ratingControl(recipe.rating, "form", "")}</label></div><div class="form-section"><div class="form-section-heading"><span>出典</span><small>任意</small></div><label class="field-label">元URL<input name="sourceURL" type="url" value="${attr(recipe.sourceURL)}" placeholder="https://..." autocomplete="url"></label>${recipe.rawImportedText ? `<label class="field-label">取得した元本文<textarea name="rawImportedText" data-field="raw" rows="5">${esc(recipe.rawImportedText)}</textarea></label>` : ""}</div>` : ""}
       <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">${editing ? "キャンセル" : "戻る"}</button><button type="submit" class="button button-primary">${editing ? "変更を保存" : "保存"}</button></div>
     </form>`, true, "modal-editor");
 }
@@ -552,7 +748,7 @@ function cookLogModal() {
   return modalShell(editing ? "記録を編集" : "作った記録", `
     <form class="editor-form" data-form="cooklog" data-recipe-id="${attr(recipe?.id ?? "")}" data-log-id="${attr(editing?.id ?? "")}">
       <div class="form-section"><label class="field-label">作った日<input name="cookedAt" type="date" value="${attr(dateInputValue(log.cookedAt))}"></label><label class="field-label">写真（任意）<input name="image" type="file" accept="image/*"><small>${log.imagePath ? "新しい画像を選ぶと差し替えます。" : ""}</small></label><label class="field-label">評価${ratingControl(log.rating, "log-form", "")}</label></div>
-      <div class="form-section"><label class="field-label">メモ<textarea name="memo" rows="3" placeholder="おいしくできた">${esc(log.memo)}</textarea></label><label class="field-label">次回改善メモ<textarea name="improvementMemo" rows="3">${esc(log.improvementMemo)}</textarea></label><label class="field-label">アレンジ内容<textarea name="arrangementMemo" rows="3">${esc(log.arrangementMemo)}</textarea></label></div>
+      <div class="form-section"><label class="field-label">メモ<textarea name="memo" data-field="cooklog-memo" rows="3" placeholder="おいしくできた">${esc(log.memo)}</textarea></label><label class="field-label">次回改善メモ<textarea name="improvementMemo" data-field="cooklog-improvement" rows="3">${esc(log.improvementMemo)}</textarea></label><label class="field-label">アレンジ内容<textarea name="arrangementMemo" data-field="cooklog-arrangement" rows="3">${esc(log.arrangementMemo)}</textarea></label></div>
       <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">キャンセル</button><button type="submit" class="button button-primary">保存</button></div>
     </form>`, false);
 }
@@ -667,7 +863,15 @@ function render() {
     pendingImagePreviewURL = null;
   }
   const detail = state.selectedId ? state.recipes.find((recipe) => recipe.id === state.selectedId) : null;
-  app.innerHTML = detail ? detailView(detail) : listView();
+  app.innerHTML = state.printPayload
+    ? printView(state.printPayload)
+    : state.achievementPage === "achievements"
+      ? achievementsView()
+      : state.achievementPage === "titles"
+        ? titlesView()
+        : detail
+          ? detailView(detail)
+          : listView();
   document.body.classList.toggle("modal-is-open", Boolean(state.modal));
   hydrateImages();
   if (state.modal === "settings" && !state.diagnostics) loadDiagnostics();
@@ -796,6 +1000,13 @@ async function saveRecipeForm(form) {
       recipe.extractionWarnings = [];
       recipe.ingredientSource = "manual";
       recipe.instructionSource = "manual";
+      if (mode === "url" || mode === "image") {
+        const pastedText = String(data.get("rawImportedText") ?? "").trim();
+        recipe.rawImportedText = pastedText;
+        recipe.extractedRawText = pastedText;
+        recipe.importedTextSource = pastedText ? "manualPaste" : mode === "url" ? "url" : "none";
+        recipe.extractionWarnings = pastedText ? [mode === "url" ? "Web版ではURL先の本文取得ができないため、貼り付けた本文を保存しました。" : "Web版では画像OCRの代わりに、貼り付けた本文を保存しました。"] : [];
+      }
     }
 
     const file = form.elements.image?.files?.[0];
@@ -996,6 +1207,26 @@ function shareRecipe(recipe) {
   else navigator.clipboard?.writeText(text).then(() => toast("レシピ本文をコピーしました。"), () => toast("共有できませんでした。", "error"));
 }
 
+function printRecipes(recipes) {
+  const printable = Array.isArray(recipes) ? recipes.filter(Boolean) : [];
+  if (!printable.length) {
+    toast("印刷するレシピがありません。", "error");
+    return;
+  }
+  const finish = () => {
+    if (!state.printPayload) return;
+    state.printPayload = null;
+    render();
+  };
+  window.addEventListener("afterprint", finish, { once: true });
+  state.printPayload = printable;
+  state.selectedId = null;
+  state.achievementPage = null;
+  state.modal = null;
+  render();
+  setTimeout(() => window.print?.(), 240);
+}
+
 async function handleClick(event) {
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) return;
@@ -1011,9 +1242,30 @@ async function handleClick(event) {
     render();
     return;
   }
-  if (action === "home") { state.selectedId = null; state.modal = null; render(); return; }
+  if (action === "home") { state.selectedId = null; state.achievementPage = null; state.modal = null; render(); return; }
+  if (action === "achievements") { state.selectedId = null; state.achievementPage = "achievements"; state.modal = null; render(); return; }
+  if (action === "titles") { state.selectedId = null; state.achievementPage = "titles"; state.modal = null; render(); return; }
+  if (action === "append-tag") {
+    const input = actionTarget.closest("form")?.elements.tags;
+    if (input) {
+      input.value = normalizeTags(`${input.value},${actionTarget.dataset.tag ?? ""}`).join(", ");
+      input.focus();
+    }
+    return;
+  }
+  if (action === "equip-title") {
+    const titleID = actionTarget.dataset.titleId ?? "";
+    const achievements = achievementsFor(state.recipes);
+    const milestone = titleMilestones(achievements).find((item) => item.title.id === titleID);
+    if (milestone?.isUnlocked) {
+      state.selectedTitleID = state.selectedTitleID === titleID ? "" : titleID;
+      writeSelectedTitle(state.selectedTitleID);
+      render();
+    }
+    return;
+  }
   if (action === "settings") { state.modal = "settings"; state.diagnostics = null; render(); return; }
-  if (action === "add-recipe") { state.modal = "add-method"; state.editingId = null; state.editorMode = "manual"; render(); return; }
+  if (action === "add-recipe") { state.achievementPage = null; state.modal = "add-method"; state.editingId = null; state.editorMode = "manual"; render(); return; }
   if (action === "choose-add-mode") {
     const mode = actionTarget.dataset.mode;
     if (mode === "url") {
@@ -1025,8 +1277,8 @@ async function handleClick(event) {
     render();
     return;
   }
-  if (action === "edit-recipe") { state.modal = "recipe"; state.editingId = state.selectedId; render(); return; }
-  if (action === "recipe") { state.selectedId = actionTarget.dataset.id; render(); return; }
+  if (action === "edit-recipe") { state.achievementPage = null; state.modal = "recipe"; state.editingId = state.selectedId; render(); return; }
+  if (action === "recipe") { state.achievementPage = null; state.selectedId = actionTarget.dataset.id; render(); return; }
   if (action === "filter") { state.filter = actionTarget.dataset.filter; render(); return; }
   if (action === "tag") { state.tag = state.tag === actionTarget.dataset.tag ? null : actionTarget.dataset.tag; render(); return; }
   if (action === "clear-search") { state.query = ""; render(); return; }
@@ -1050,6 +1302,8 @@ async function handleClick(event) {
   if (action === "toggle-ingredient") { const recipe = currentRecipe(actionTarget.dataset.id); const line = recipe?.ingredients?.[Number(actionTarget.dataset.index)]; if (recipe && line) { const checked = new Set(recipe.checkedIngredients ?? []); checked.has(line) ? checked.delete(line) : checked.add(line); recipe.checkedIngredients = recipe.ingredients.filter((item) => checked.has(item)); await putRecipe(recipe); render(); } return; }
   if (action === "reset-checklist") { const recipe = currentRecipe(actionTarget.dataset.id); if (recipe) { recipe.checkedIngredients = []; await putRecipe(recipe); render(); } return; }
   if (action === "share-recipe") { const recipe = currentRecipe(actionTarget.dataset.id); if (recipe) shareRecipe(recipe); return; }
+  if (action === "print-recipe") { const recipe = currentRecipe(actionTarget.dataset.id); if (recipe) printRecipes([recipe]); return; }
+  if (action === "print-all") { printRecipes([...state.recipes]); return; }
   if (action === "add-cook-log") { state.selectedId = actionTarget.dataset.id; state.modal = "cooklog"; state.editingLogId = null; render(); return; }
   if (action === "edit-cook-log") { state.selectedId = actionTarget.dataset.id; state.modal = "cooklog"; state.editingLogId = actionTarget.dataset.logId; render(); return; }
   if (action === "delete-cook-log") { await deleteCookLog(actionTarget.dataset.id, actionTarget.dataset.logId); return; }
@@ -1078,7 +1332,7 @@ async function handleSubmit(event) {
       toast("レシピURLを入力してください。", "error");
       return;
     }
-    state.urlPrefill = { url, sourceKind: sourceKindFromURL(url) };
+    state.urlPrefill = { url, sourceKind: sourceKindFromURL(url), rawImportedText: String(data.get("rawImportedText") ?? "").trim() };
     state.modal = "recipe";
     state.editorMode = "url";
     render();
@@ -1086,7 +1340,12 @@ async function handleSubmit(event) {
 }
 
 async function handleChange(event) {
-  if (event.target.matches("[data-role=sort]")) { state.sort = event.target.value; render(); return; }
+  if (event.target.matches("[data-role=sort]")) {
+    state.sort = SORTS.some(([value]) => value === event.target.value) ? event.target.value : "recentlyUpdated";
+    try { localStorage.setItem("recipeclipper-sort", state.sort); } catch { /* in-memory fallback */ }
+    render();
+    return;
+  }
   if (event.target.matches("[data-role=theme]")) {
     state.theme = event.target.value;
     applyTheme();

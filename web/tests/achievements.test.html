@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>RecipeClipper achievements tests</title>
+<pre id="result">実行中…</pre>
+<script type="module">
+  import {
+    achievementProgress,
+    achievementSnapshot,
+    achievementsFor,
+    equippedTitle,
+    nextAchievement,
+    titleMilestones,
+  } from "../achievements.js";
+
+  const output = document.querySelector("#result");
+  const failures = [];
+  const assert = (condition, message) => {
+    if (!condition) failures.push(message);
+  };
+
+  const recipe = {
+    id: "test-recipe",
+    sourceKind: "cookpad",
+    imagePath: "recipe.jpg",
+    isFavorite: true,
+    rating: 4,
+    wantsRemake: true,
+    tags: ["和食", "和食", "Dinner"],
+    notes: "次回は少し薄味",
+    ingredients: ["米"],
+    instructions: ["炊く"],
+    cookLogs: [{
+      cookedAt: new Date().toISOString(),
+      imagePath: "cooklog.jpg",
+      memo: "よくできた",
+      improvementMemo: "",
+      arrangementMemo: "",
+    }],
+  };
+
+  const snapshot = achievementSnapshot([recipe]);
+  const achievements = achievementsFor([recipe]);
+  assert(achievements.length === 38, `実績数: ${achievements.length}`);
+  assert(snapshot.recipeCount === 1 && snapshot.cookCount === 1, "レシピ/CookLog件数");
+  assert(snapshot.photoCount === 1 && snapshot.cookLogPhotoCount === 1, "画像件数");
+  assert(snapshot.completeRecipeCount === 1 && snapshot.recipeNoteCount === 1, "完成レシピ/メモ件数");
+  assert(snapshot.uniqueTagCount === 2 && snapshot.sourceKindCount === 1, "タグ/出典件数");
+  assert(achievements.find((item) => item.id === "first-clip")?.isUnlocked, "first-clip unlocked");
+  assert(achievements.find((item) => item.id === "first-cook")?.isUnlocked, "first-cook unlocked");
+  assert(nextAchievement(achievements)?.id === "signature", "次の実績の選択");
+  assert(achievementProgress(achievements).unlocked === 2, "初期達成数");
+  assert(titleMilestones(achievements).length === 18, "称号マイルストーン数");
+  assert(equippedTitle(achievements, "beginner").id === "beginner", "称号の装備");
+
+  output.textContent = failures.length ? `FAIL ${failures.length}\n${failures.join("\n")}` : "PASS";
+  output.dataset.status = failures.length ? "fail" : "pass";
+</script>
