@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f7f4ee">
     <meta name="description" content="RecipeClipper — local-first recipe archive">
+    <script>
+      try {
+        const theme = localStorage.getItem("recipeclipper-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
@@ -16,6 +22,6 @@
     </div>
     <div id="toast" class="toast" role="status"></div>
     <noscript>RecipeClipperを使うにはJavaScriptを有効にしてください。</noscript>
-    <script type="module" src="./app.js?v=2"></script>
+    <script type="module" src="./app.js?v=4"></script>
   </body>
 </html>

@@ -1,16 +1,11 @@
 import {
-  BackupValidationError,
   backupJSONString,
   backupSummary,
   dateIsValid,
   inspectBackupJSON,
-  makePortableBackup,
   newUUID,
   normalizeLines,
   normalizeTags,
-  parseBackupJSON,
-  semanticDifferences,
-  serializeRecipe,
   validateRoundTrip,
 } from "./portable.js";
 import { createStoreZip, readStoreZip } from "./zip.js";
@@ -60,6 +55,21 @@ const SOURCE_KINDS = [
   ["other", "その他"],
 ];
 
+const THEME_OPTIONS = [
+  ["system", "システムに合わせる"],
+  ["light", "ライト"],
+  ["dark", "ダーク"],
+];
+
+function readThemePreference() {
+  try {
+    const saved = localStorage.getItem("recipeclipper-theme");
+    return THEME_OPTIONS.some(([value]) => value === saved) ? saved : "system";
+  } catch {
+    return "system";
+  }
+}
+
 const state = {
   recipes: [],
   selectedId: null,
@@ -68,6 +78,8 @@ const state = {
   tag: null,
   sort: "recentlyUpdated",
   modal: null,
+  editorMode: "manual",
+  urlPrefill: null,
   editingId: null,
   editingLogId: null,
   importPreview: null,
@@ -76,9 +88,13 @@ const state = {
   toast: null,
   busy: false,
   error: null,
+  theme: readThemePreference(),
 };
 
 const imageURLs = new Map();
+let pendingImagePreviewURL = null;
+let renderFrame = null;
+let pendingSearchSelection = null;
 
 function esc(value) {
   return String(value ?? "")
@@ -146,6 +162,33 @@ function sourceHost(value) {
   } catch {
     return "";
   }
+}
+
+function sourceKindFromURL(value) {
+  const source = `${sourceHost(value)} ${value}`.toLocaleLowerCase();
+  if (source.includes("instagram.com")) return "instagram";
+  if (source.includes("cookpad.com")) return "cookpad";
+  if (source.includes("youtube.com") || source.includes("youtu.be")) return "youtube";
+  return source.trim() ? "web" : "original";
+}
+
+function applyTheme() {
+  const root = document.documentElement;
+  const followsDarkSystem = state.theme === "system" && globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  if (state.theme === "system") {
+    delete root.dataset.theme;
+    root.style.colorScheme = "light dark";
+  } else {
+    root.dataset.theme = state.theme;
+    root.style.colorScheme = state.theme;
+  }
+  try {
+    localStorage.setItem("recipeclipper-theme", state.theme);
+  } catch {
+    // Private browsing may deny localStorage; the in-memory setting still works.
+  }
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) themeColor.content = state.theme === "dark" || followsDarkSystem ? "#171614" : "#f7f4ee";
 }
 
 function recipeTags(recipe) {
@@ -408,15 +451,52 @@ function cookLogMarkup(recipe, log) {
   </article>`;
 }
 
-function modalShell(title, content, wide = false) {
-  return `<div class="modal-backdrop" data-action="close-modal"><section class="modal-card ${wide ? "modal-wide" : ""}" role="dialog" aria-modal="true" aria-label="${attr(title)}" data-modal-card><div class="modal-header"><h2>${esc(title)}</h2><button class="icon-button" data-action="close-modal" aria-label="閉じる">×</button></div>${content}</section></div>`;
+function modalShell(title, content, wide = false, variant = "") {
+  return `<div class="modal-backdrop" data-action="close-modal"><section class="modal-card ${wide ? "modal-wide" : ""} ${variant}" role="dialog" aria-modal="true" aria-label="${attr(title)}" data-modal-card><div class="modal-header"><h2>${esc(title)}</h2><button class="icon-button" data-action="close-modal" aria-label="閉じる">×</button></div>${content}</section></div>`;
 }
 
 function modalMarkup() {
   if (state.modal === "settings") return settingsModal();
+  if (state.modal === "add-method") return addMethodModal();
+  if (state.modal === "url-import") return urlImportModal();
   if (state.modal === "recipe") return recipeModal();
   if (state.modal === "cooklog") return cookLogModal();
   return "";
+}
+
+function urlImportModal() {
+  return modalShell("URLから取り込む", `
+    <form class="editor-form url-import-form" data-form="url-import">
+      <div class="form-section url-import-hero"><div class="method-icon method-icon-indigo">↗</div><div><strong>リンクを貼るだけ</strong><p>URLを元レシピとして保存し、内容を確認しながら入力できます。</p></div></div>
+      <div class="form-section"><label class="field-label">レシピURL <span class="required">必須</span><input name="sourceURL" type="url" required placeholder="https://example.com/recipe" autocomplete="url" autocapitalize="none"></label><p class="editor-help">Web版では外部サイトの制限により、URL先の本文を自動取得できない場合があります。その場合もURLは保持されます。</p></div>
+      <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">戻る</button><button type="submit" class="button button-primary">このURLでレシピを書く</button></div>
+    </form>`, true, "modal-editor");
+}
+
+function addMethodModal() {
+  return modalShell("新しいレシピ", `
+    <div class="add-method-page">
+      <div class="add-method-intro">
+        <h3>新しいレシピ</h3>
+        <p>いちばん近い追加方法を選んでください</p>
+      </div>
+      <button class="add-method-card" data-action="choose-add-mode" data-mode="manual">
+        <span class="method-icon method-icon-tomato">✎</span>
+        <span class="method-copy"><strong>自分でレシピを書く</strong><small>材料と手順を少しずつ。写真もきれいに登録できます</small></span>
+        <span class="method-chevron">›</span>
+      </button>
+      <button class="add-method-card" data-action="choose-add-mode" data-mode="image">
+        <span class="method-icon method-icon-basil">▧</span>
+        <span class="method-copy"><strong>画像からレシピ</strong><small>スクリーンショットを選び、代表画像として保存します</small></span>
+        <span class="method-chevron">›</span>
+      </button>
+      <button class="add-method-card" data-action="choose-add-mode" data-mode="url">
+        <span class="method-icon method-icon-indigo">↗</span>
+        <span class="method-copy"><strong>URLから取り込む</strong><small>Webページ、Instagram、YouTubeのレシピに</small></span>
+        <span class="method-chevron">›</span>
+      </button>
+      <p class="privacy-note">画像はこの端末内に保存され、サーバーへ送信されません。</p>
+    </div>`, true, "modal-method");
 }
 
 function settingsModal() {
@@ -428,6 +508,7 @@ function settingsModal() {
   return modalShell("設定 / Backup", `
     <div class="settings-stack">
       <section class="settings-hero"><span class="settings-icon">⌘</span><div><h3>local-first RecipeClipper</h3><p>レシピはこの端末のIndexedDBに保存され、サーバーへ送信されません。</p></div></section>
+      <section class="settings-card appearance-card"><div class="settings-card-heading"><div><span class="section-kicker indigo">APPEARANCE</span><h3>表示</h3></div></div><label class="field-label appearance-field">テーマ<select data-role="theme" aria-label="テーマ">${THEME_OPTIONS.map(([value, label]) => `<option value="${value}" ${state.theme === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><p>元のiPhone版と同じく、初期状態は端末のライト／ダーク設定に合わせます。</p></section>
       <section class="settings-card"><div class="settings-card-heading"><div><span class="section-kicker tomato">BACKUP</span><h3>データを守る</h3></div><span class="backup-badge">portable</span></div><p>iPhone版のZIP、またはWeb版のZIPを読み込みます。復元は現在のデータを置き換えます。</p><div class="button-row"><button class="button button-primary" data-action="export-backup" ${state.busy ? "disabled" : ""}>↓ バックアップを書き出す</button><button class="button button-secondary" data-action="choose-backup" ${state.busy ? "disabled" : ""}>↑ バックアップを読み込む</button></div><input id="backup-file" type="file" accept=".zip,.json,application/zip,application/json" hidden></section>
       ${preview ? `<section class="import-preview"><div class="preview-heading"><div><span class="section-kicker green">IMPORT CHECK</span><h3>復元前の検証結果</h3></div><span class="validation-pill ${preview.roundTrip?.valid && !preview.errors?.length ? "valid" : "invalid"}">${preview.roundTrip?.valid && !preview.errors?.length ? "検証OK" : "要確認"}</span></div><div class="preview-stats"><span><strong>${previewSummary.recipeCount}</strong>レシピ</span><span><strong>${previewSummary.cookLogCount}</strong>CookLog</span><span><strong>${previewSummary.tagCount}</strong>タグ</span><span><strong>${previewSummary.recipeIds.length}</strong>ID保持</span></div>${preview.errors?.length ? `<div class="validation-errors">${preview.errors.map((item) => `<p>⚠ ${esc(item)}</p>`).join("")}</div>` : ""}${previewWarnings.length ? `<div class="validation-warnings">${previewWarnings.map((item) => `<p>• ${esc(item)}</p>`).join("")}</div>` : ""}${preview.roundTrip?.differences?.length ? `<div class="validation-errors">${preview.roundTrip.differences.map((item) => `<p>⚠ ${esc(item)}</p>`).join("")}</div>` : ""}<p class="preview-note">同じバックアップを再度読み込んでもID単位で置き換わるため、二重登録されません。</p><div class="button-row"><button class="button button-danger" data-action="restore-backup" ${preview.errors?.length || !preview.roundTrip?.valid ? "disabled" : ""}>この内容で上書き復元</button><button class="button button-quiet" data-action="discard-import">キャンセル</button></div></section>` : ""}
       <section class="settings-card"><div class="settings-card-heading"><div><span class="section-kicker indigo">VALIDATION</span><h3>移行データを点検</h3></div></div><p>現在のIndexedDBをportable JSONへ変換し、再読込して件数・ID・配列順・全フィールドの意味が一致するか確認します。</p><button class="button button-secondary" data-action="validate-current">現在のデータを検証する</button>${report ? `<div class="validation-result ${report.valid ? "success" : "failure"}">${report.valid ? `✓ ${report.recipeCount}件のsemantic equivalenceを確認しました。` : `⚠ 差分 ${report.differences.length}件: ${report.differences.map(esc).join(" / ")}`}</div>` : ""}</section>
@@ -436,18 +517,29 @@ function settingsModal() {
     </div>`, true);
 }
 
+function editorPhotoSection(recipe, mode, editing) {
+  const allowMultiple = !editing && mode === "image";
+  const preview = recipe.imagePath
+    ? imageMarkup(recipe, "editor-photo-image")
+    : `<div class="editor-photo-placeholder"><span>♧</span><small>写真はあとからでも追加できます</small></div>`;
+  return `<div class="form-section photo-form-section"><div class="form-section-heading"><span>できあがり写真</span><small>${allowMultiple ? "材料と手順のスクリーンショットも選べます" : "任意"}</small></div><div class="editor-photo-preview" data-image-preview>${preview}</div><label class="button button-primary file-picker-label"><span>${recipe.imagePath ? "写真を変更" : "写真を選ぶ"}</span><input name="image" type="file" accept="image/*" ${allowMultiple ? "multiple" : ""}></label><small class="field-help">${allowMultiple ? "Web版では選択した最初の画像を代表画像として保存します。材料・作り方は下の欄で確認してください。" : "iPhone版と同じく、保存時に大きな画像は2048px程度へ縮小します。"}</small></div>`;
+}
+
 function recipeModal() {
   const editing = state.editingId ? state.recipes.find((recipe) => recipe.id === state.editingId) : null;
   const recipe = editing ?? newRecipe();
-  return modalShell(editing ? "レシピを編集" : "新しいレシピ", `
-    <form class="editor-form" data-form="recipe" data-id="${attr(editing?.id ?? "")}">
-      <div class="form-section"><label class="field-label">レシピ名 <span class="required">必須</span><input name="title" required value="${attr(recipe.title)}" placeholder="例：春野菜のパスタ"></label><label class="field-label">ひとこと<textarea name="summary" rows="2" placeholder="味や特徴をひとこと">${esc(recipe.summary)}</textarea></label><div class="form-grid"><label class="field-label">何人分<input name="servings" value="${attr(recipe.servings)}" placeholder="例：2人分"></label><label class="field-label">登録方法<select name="sourceKind">${SOURCE_KINDS.map(([value, label]) => `<option value="${value}" ${recipe.sourceKind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label></div><label class="field-label">元URL（任意）<input name="sourceURL" type="url" value="${attr(recipe.sourceURL)}" placeholder="https://..."></label></div>
-      <div class="form-section"><label class="field-label"><span>できあがり写真</span><input name="image" type="file" accept="image/*"><small>${recipe.imagePath ? "新しい画像を選ぶと差し替えます。" : "画像はあとからでも追加できます。"}</small></label></div>
-      <div class="form-section"><label class="field-label">材料 <small>改行ごとに1行</small><textarea name="ingredients" rows="7" placeholder="玉ねぎ 1/2個\n鶏もも肉 300g">${esc((recipe.ingredients ?? []).join("\n"))}</textarea></label><label class="field-label">作り方 <small>改行ごとに1手順</small><textarea name="instructions" rows="8" placeholder="材料を切る\n鍋で煮る">${esc((recipe.instructions ?? []).join("\n"))}</textarea></label></div>
-      <div class="form-section"><label class="field-label">タグ <small>カンマまたは改行で区切る</small><input name="tags" value="${attr((recipe.tags ?? []).join(", "))}" placeholder="平日, 鍋"></label><label class="field-label">自分用メモ<textarea name="notes" rows="4" placeholder="次回の調整、家族の好みなど">${esc(recipe.notes)}</textarea></label></div>
-      <div class="form-section preference-grid"><label class="check-label"><input name="isFavorite" type="checkbox" ${recipe.isFavorite ? "checked" : ""}> ♥ お気に入り</label><label class="check-label"><input name="wantsRemake" type="checkbox" ${recipe.wantsRemake ? "checked" : ""}> ↺ また作りたい</label><label class="field-label">評価${ratingControl(recipe.rating, "form", "")}</label></div>
-      <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">キャンセル</button><button type="submit" class="button button-primary">保存</button></div>
-    </form>`, true);
+  const mode = editing ? "edit" : state.editorMode;
+  const title = editing ? "レシピを編集" : mode === "image" ? "画像からレシピ" : mode === "url" ? "URLから取り込む" : "自分のレシピ";
+  return modalShell(title, `
+    <form class="editor-form" data-form="recipe" data-id="${attr(editing?.id ?? "")}" data-mode="${mode}">
+      ${editorPhotoSection(recipe, mode, Boolean(editing))}
+      <div class="form-section"><div class="form-section-heading"><span>基本情報</span><small>RecipeClipper</small></div><label class="field-label">レシピ名 <span class="required">必須</span><input name="title" required value="${attr(recipe.title)}" placeholder="例：いつものチキンカレー" autocomplete="off"></label><label class="field-label">ひとこと<textarea name="summary" rows="2" placeholder="味や特徴をメモ">${esc(recipe.summary)}</textarea></label><label class="field-label">何人分 <small>任意</small><input name="servings" value="${attr(recipe.servings)}" placeholder="例：2人分" autocomplete="off"></label>${editing ? `<label class="field-label">登録方法<select name="sourceKind">${SOURCE_KINDS.map(([value, label]) => `<option value="${value}" ${recipe.sourceKind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ""}${!editing && mode === "url" ? `<label class="field-label">元URL <span class="required">必須</span><input name="sourceURL" type="url" required value="${attr(state.urlPrefill?.url ?? "")}" placeholder="https://..." autocomplete="url"></label>` : ""}</div>
+      <div class="form-section"><div class="form-section-heading"><span>材料</span><small>改行ごとに1行</small></div><p class="editor-help">入力中は自由に改行・挿入できます。表示時に改行ごとに分かれます。</p><textarea name="ingredients" rows="7" placeholder="玉ねぎ 1/2個\n鶏もも肉 300g">${esc((recipe.ingredients ?? []).join("\n"))}</textarea></div>
+      <div class="form-section"><div class="form-section-heading"><span>作り方</span><small>改行ごとに1手順</small></div><p class="editor-help">作り方を自由に入力してください。</p><textarea name="instructions" rows="8" placeholder="材料を切る\n鍋で煮る">${esc((recipe.instructions ?? []).join("\n"))}</textarea></div>
+      <div class="form-section"><div class="form-section-heading"><span>仕上げ</span><small>タグと自分用メモ</small></div><label class="field-label">タグ <small>カンマまたは改行で区切る</small><input name="tags" value="${attr((recipe.tags ?? []).join(", "))}" placeholder="平日, 鍋" autocomplete="off"></label><label class="field-label">自分用メモ<textarea name="notes" rows="4" placeholder="次回の調整、家族の好みなど">${esc(recipe.notes)}</textarea></label></div>
+      ${editing ? `<div class="form-section preference-grid"><div class="form-section-heading"><span>お気に入り・評価</span><small>いつでも変更できます</small></div><label class="check-label"><input name="isFavorite" type="checkbox" ${recipe.isFavorite ? "checked" : ""}> ♥ お気に入り</label><label class="check-label"><input name="wantsRemake" type="checkbox" ${recipe.wantsRemake ? "checked" : ""}> ↺ また作りたい</label><label class="field-label">評価${ratingControl(recipe.rating, "form", "")}</label></div><div class="form-section"><div class="form-section-heading"><span>出典</span><small>任意</small></div><label class="field-label">元URL<input name="sourceURL" type="url" value="${attr(recipe.sourceURL)}" placeholder="https://..." autocomplete="url"></label>${recipe.rawImportedText ? `<label class="field-label">取得した元本文<textarea name="rawImportedText" rows="5">${esc(recipe.rawImportedText)}</textarea></label>` : ""}</div>` : ""}
+      <div class="form-actions"><button type="button" class="button button-quiet" data-action="close-modal">${editing ? "キャンセル" : "戻る"}</button><button type="submit" class="button button-primary">${editing ? "変更を保存" : "保存"}</button></div>
+    </form>`, true, "modal-editor");
 }
 
 function cookLogModal() {
@@ -473,12 +565,122 @@ function newRecipe() {
   };
 }
 
+function normalizeServings(value) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+}
+
+async function prepareImageBlob(file) {
+  if (!file) return null;
+  const maxPixelLength = 2048;
+  try {
+    let image;
+    if (globalThis.createImageBitmap) {
+      try {
+        image = await createImageBitmap(file, { imageOrientation: "from-image" });
+      } catch {
+        image = await createImageBitmap(file);
+      }
+    } else {
+      image = await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const element = new Image();
+        element.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(element);
+        };
+        element.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("画像を読み込めませんでした。"));
+        };
+        element.src = url;
+      });
+    }
+    const width = image.width;
+    const height = image.height;
+    const scale = Math.min(1, maxPixelLength / Math.max(width, height));
+    if (scale === 1) {
+      image.close?.();
+      return file;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) {
+      image.close?.();
+      return file;
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    image.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
+async function storeImageFile(file) {
+  const blob = await prepareImageBlob(file);
+  const extension = (blob?.type === "image/jpeg"
+    ? "jpg"
+    : (blob?.type || file.type || "application/octet-stream").split("/").at(-1) || "bin")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLocaleLowerCase() || "bin";
+  const name = `${newUUID()}.${extension}`;
+  await putImage(name, blob);
+  return name;
+}
+
+function scheduleRender() {
+  if (renderFrame !== null) return;
+  const renderLater = () => {
+    renderFrame = null;
+    render();
+    if (!pendingSearchSelection) return;
+    const selection = pendingSearchSelection;
+    pendingSearchSelection = null;
+    const search = document.querySelector("[data-role=search]");
+    if (search) {
+      search.focus({ preventScroll: true });
+      search.setSelectionRange(selection.start, selection.end);
+    }
+  };
+  if (globalThis.requestAnimationFrame) renderFrame = requestAnimationFrame(renderLater);
+  else renderFrame = setTimeout(renderLater, 0);
+}
+
 function render() {
   if (!app) return;
+  const previousDetailState = Boolean(state.selectedId);
+  const previousScrollY = window.scrollY;
+  if (pendingImagePreviewURL) {
+    URL.revokeObjectURL(pendingImagePreviewURL);
+    pendingImagePreviewURL = null;
+  }
   const detail = state.selectedId ? state.recipes.find((recipe) => recipe.id === state.selectedId) : null;
   app.innerHTML = detail ? detailView(detail) : listView();
+  document.body.classList.toggle("modal-is-open", Boolean(state.modal));
   hydrateImages();
   if (state.modal === "settings" && !state.diagnostics) loadDiagnostics();
+  if (!state.modal && previousDetailState === Boolean(state.selectedId)) window.scrollTo(0, previousScrollY);
+}
+
+function showImagePreview(file) {
+  const preview = document.querySelector("[data-image-preview]");
+  if (!preview) return;
+  if (pendingImagePreviewURL) URL.revokeObjectURL(pendingImagePreviewURL);
+  if (!file) {
+    pendingImagePreviewURL = null;
+    return;
+  }
+  pendingImagePreviewURL = URL.createObjectURL(file);
+  preview.innerHTML = `<img class="editor-photo-image" src="${attr(pendingImagePreviewURL)}" alt="選択した写真のプレビュー">`;
 }
 
 async function hydrateImages() {
@@ -534,56 +736,85 @@ function updateRecipe(id, updater) {
   return recipe;
 }
 
-async function saveUpdatedRecipe(recipe) {
-  recipe.updatedAt = new Date().toISOString();
+async function saveUpdatedRecipe(recipe, touchUpdatedAt = true) {
+  if (touchUpdatedAt) recipe.updatedAt = new Date().toISOString();
   await putRecipe(recipe);
   render();
 }
 
 async function saveRecipeForm(form) {
+  if (state.busy) return;
+  const data = new FormData(form);
+  state.busy = true;
+  form.classList.add("is-saving");
+  form.querySelectorAll("button, input, textarea, select").forEach((element) => {
+    if (element.type !== "hidden") element.disabled = true;
+  });
+
   const editingId = form.dataset.id || null;
   const existing = editingId ? currentRecipe(editingId) : null;
   const recipe = existing ? { ...existing, cookLogs: [...(existing.cookLogs ?? [])] } : newRecipe();
-  const data = new FormData(form);
-  const title = String(data.get("title") ?? "").trim();
-  if (!title) {
-    toast("レシピ名を入力してください。", "error");
-    return;
-  }
-  recipe.title = title;
-  recipe.summary = String(data.get("summary") ?? "").trim();
-  recipe.servings = String(data.get("servings") ?? "").trim().slice(0, 40);
-  recipe.sourceURL = normalizeURL(data.get("sourceURL"));
-  recipe.sourceHost = sourceHost(recipe.sourceURL);
-  recipe.normalizedSourceURL = recipe.sourceURL;
-  recipe.sourceKind = String(data.get("sourceKind") ?? "web");
-  recipe.ingredients = normalizeLines(String(data.get("ingredients") ?? "").split(/\r?\n/));
-  recipe.instructions = normalizeLines(String(data.get("instructions") ?? "").split(/\r?\n/));
-  recipe.checkedIngredients = (recipe.checkedIngredients ?? []).filter((line) => recipe.ingredients.includes(line));
-  recipe.tags = normalizeTags(data.get("tags"));
-  recipe.notes = String(data.get("notes") ?? "").trim();
-  recipe.isFavorite = data.get("isFavorite") === "on";
-  recipe.wantsRemake = data.get("wantsRemake") === "on";
-  const ratingFromButtons = form.dataset.formRating;
-  if (ratingFromButtons) recipe.rating = Number(ratingFromButtons);
+  try {
+    const mode = form.dataset.mode || "manual";
+    const title = String(data.get("title") ?? "").trim();
+    if (!title) {
+      toast("レシピ名を入力してください。", "error");
+      return;
+    }
+    recipe.title = title;
+    recipe.summary = String(data.get("summary") ?? "").trim();
+    recipe.servings = normalizeServings(data.get("servings"));
+    recipe.sourceURL = editingId || mode === "url" ? normalizeURL(data.get("sourceURL")) : "";
+    recipe.sourceHost = sourceHost(recipe.sourceURL);
+    recipe.normalizedSourceURL = recipe.sourceURL;
+    recipe.sourceKind = editingId ? String(data.get("sourceKind") ?? recipe.sourceKind ?? "web") : mode === "image" ? "image" : mode === "url" ? sourceKindFromURL(recipe.sourceURL) : "original";
+    recipe.ingredients = normalizeLines(String(data.get("ingredients") ?? "").split(/\r?\n/));
+    recipe.instructions = normalizeLines(String(data.get("instructions") ?? "").split(/\r?\n/));
+    recipe.checkedIngredients = (recipe.checkedIngredients ?? []).filter((line) => recipe.ingredients.includes(line));
+    recipe.tags = normalizeTags(data.get("tags"));
+    recipe.notes = String(data.get("notes") ?? "").trim();
+    if (editingId) {
+      recipe.isFavorite = data.get("isFavorite") === "on";
+      recipe.wantsRemake = data.get("wantsRemake") === "on";
+      const ratingFromButtons = form.dataset.formRating;
+      if (ratingFromButtons !== undefined) recipe.rating = Number(ratingFromButtons);
+      if (form.elements.rawImportedText) recipe.rawImportedText = String(data.get("rawImportedText") ?? "").trim();
+    } else {
+      recipe.isFavorite = false;
+      recipe.rating = 0;
+      recipe.wantsRemake = false;
+      recipe.extractedRawText = "";
+      recipe.rawImportedText = "";
+      recipe.rawImportedHTML = "";
+      recipe.importedTextSource = mode === "url" ? "url" : "manual";
+      recipe.extractionConfidence = 0;
+      recipe.extractionWarnings = [];
+      recipe.ingredientSource = "manual";
+      recipe.instructionSource = "manual";
+    }
 
-  const file = form.elements.image?.files?.[0];
-  if (file) {
-    const extension = file.type.split("/")[1] || "jpeg";
-    recipe.imagePath = `web-${newUUID()}.${extension.replace(/[^a-z0-9]/gi, "") || "jpg"}`;
-    await putImage(recipe.imagePath, file);
+    const file = form.elements.image?.files?.[0];
+    if (file) recipe.imagePath = await storeImageFile(file);
+    if (!editingId) recipe.createdAt = new Date().toISOString();
+    recipe.updatedAt = new Date().toISOString();
+    recipe._providedFields = new Set([
+      "id", "title", "summary", "sourceURL", "sourceHost", "sourceImageURL", "imagePath", "notes", "tags", "servings", "ingredients", "instructions", "checkedIngredients", "normalizedSourceURL", "sourceKind", "isFavorite", "rating", "wantsRemake", "extractedRawText", "rawImportedText", "rawImportedHTML", "importedTextSource", "extractionConfidence", "extractionWarnings", "ingredientSource", "instructionSource", "createdAt", "updatedAt", "cookLogs",
+    ]);
+    await putRecipe(recipe);
+    state.recipes = existing ? state.recipes.map((item) => item.id === recipe.id ? recipe : item) : [recipe, ...state.recipes];
+    state.modal = null;
+    state.editorMode = "manual";
+    state.urlPrefill = null;
+    state.editingId = null;
+    toast(existing ? "レシピを更新しました。" : "レシピを保存しました。");
+    render();
+  } catch (error) {
+    toast(`レシピを保存できませんでした: ${error.message}`, "error");
+  } finally {
+    state.busy = false;
+    form.classList.remove("is-saving");
+    if (form.isConnected) form.querySelectorAll("button, input, textarea, select").forEach((element) => { element.disabled = false; });
   }
-  if (!editingId) recipe.createdAt = new Date().toISOString();
-  recipe.updatedAt = new Date().toISOString();
-  recipe._providedFields = new Set([
-    "id", "title", "summary", "sourceURL", "sourceHost", "sourceImageURL", "imagePath", "notes", "tags", "servings", "ingredients", "instructions", "checkedIngredients", "normalizedSourceURL", "sourceKind", "isFavorite", "rating", "wantsRemake", "extractedRawText", "rawImportedText", "rawImportedHTML", "importedTextSource", "extractionConfidence", "extractionWarnings", "ingredientSource", "instructionSource", "createdAt", "updatedAt", "cookLogs",
-  ]);
-  await putRecipe(recipe);
-  state.recipes = existing ? state.recipes.map((item) => item.id === recipe.id ? recipe : item) : [recipe, ...state.recipes];
-  state.modal = null;
-  state.editingId = null;
-  toast(existing ? "レシピを更新しました。" : "レシピを保存しました。");
-  render();
 }
 
 async function saveCookLogForm(form) {
@@ -599,11 +830,7 @@ async function saveCookLogForm(form) {
   const rating = Number(form.dataset.formRating);
   if (Number.isInteger(rating)) log.rating = Math.max(0, Math.min(5, rating));
   const file = form.elements.image?.files?.[0];
-  if (file) {
-    const extension = file.type.split("/")[1] || "jpeg";
-    log.imagePath = `web-${newUUID()}.${extension.replace(/[^a-z0-9]/gi, "") || "jpg"}`;
-    await putImage(log.imagePath, file);
-  }
+  if (file) log.imagePath = await storeImageFile(file);
   log._providedFields = new Set(["id", "cookedAt", "memo", "imagePath", "rating", "improvementMemo", "arrangementMemo"]);
   recipe.cookLogs = editing ? recipe.cookLogs.map((item) => item.id === log.id ? log : item) : [...(recipe.cookLogs ?? []), log];
   recipe.rating = Math.max(recipe.rating ?? 0, log.rating ?? 0);
@@ -774,20 +1001,33 @@ async function handleClick(event) {
     state.importPreview = null;
     state.editingId = null;
     state.editingLogId = null;
+    state.editorMode = "manual";
+    state.urlPrefill = null;
     render();
     return;
   }
   if (action === "home") { state.selectedId = null; state.modal = null; render(); return; }
   if (action === "settings") { state.modal = "settings"; state.diagnostics = null; render(); return; }
-  if (action === "add-recipe") { state.modal = "recipe"; state.editingId = null; render(); return; }
+  if (action === "add-recipe") { state.modal = "add-method"; state.editingId = null; state.editorMode = "manual"; render(); return; }
+  if (action === "choose-add-mode") {
+    const mode = actionTarget.dataset.mode;
+    if (mode === "url") {
+      state.modal = "url-import";
+    } else {
+      state.modal = "recipe";
+      state.editorMode = mode === "image" ? "image" : "manual";
+    }
+    render();
+    return;
+  }
   if (action === "edit-recipe") { state.modal = "recipe"; state.editingId = state.selectedId; render(); return; }
   if (action === "recipe") { state.selectedId = actionTarget.dataset.id; render(); return; }
   if (action === "filter") { state.filter = actionTarget.dataset.filter; render(); return; }
   if (action === "tag") { state.tag = state.tag === actionTarget.dataset.tag ? null : actionTarget.dataset.tag; render(); return; }
   if (action === "clear-search") { state.query = ""; render(); return; }
   if (action === "reset-filters") { state.query = ""; state.filter = "all"; state.tag = null; render(); return; }
-  if (action === "toggle-favorite") { const recipe = updateRecipe(actionTarget.dataset.id, (item) => { item.isFavorite = !item.isFavorite; }); if (recipe) await saveUpdatedRecipe(recipe); return; }
-  if (action === "toggle-remake") { const recipe = updateRecipe(actionTarget.dataset.id, (item) => { item.wantsRemake = !item.wantsRemake; }); if (recipe) await saveUpdatedRecipe(recipe); return; }
+  if (action === "toggle-favorite") { const recipe = updateRecipe(actionTarget.dataset.id, (item) => { item.isFavorite = !item.isFavorite; }); if (recipe) await saveUpdatedRecipe(recipe, false); return; }
+  if (action === "toggle-remake") { const recipe = updateRecipe(actionTarget.dataset.id, (item) => { item.wantsRemake = !item.wantsRemake; }); if (recipe) await saveUpdatedRecipe(recipe, false); return; }
   if (action === "set-rating") {
     const id = actionTarget.dataset.id;
     if (id === "form" || id === "log-form") {
@@ -827,27 +1067,48 @@ async function handleSubmit(event) {
   event.preventDefault();
   if (form.dataset.form === "recipe") await saveRecipeForm(form);
   if (form.dataset.form === "cooklog") await saveCookLogForm(form);
+  if (form.dataset.form === "url-import") {
+    const url = normalizeURL(new FormData(form).get("sourceURL"));
+    if (!url) {
+      toast("レシピURLを入力してください。", "error");
+      return;
+    }
+    state.urlPrefill = { url, sourceKind: sourceKindFromURL(url) };
+    state.modal = "recipe";
+    state.editorMode = "url";
+    render();
+  }
 }
 
 async function handleChange(event) {
   if (event.target.matches("[data-role=sort]")) { state.sort = event.target.value; render(); return; }
+  if (event.target.matches("[data-role=theme]")) {
+    state.theme = event.target.value;
+    applyTheme();
+    return;
+  }
   if (event.target.id === "backup-file" && event.target.files?.[0]) {
     try { await inspectBackupFile(event.target.files[0]); }
     catch (error) { toast(`バックアップを読み込めませんでした: ${error.message}`, "error"); }
     event.target.value = "";
+  }
+  if (event.target.matches('form[data-form="recipe"] input[name="image"]')) {
+    showImagePreview(event.target.files?.[0]);
   }
 }
 
 function handleInput(event) {
   if (!event.target.matches("[data-role=search]")) return;
   state.query = event.target.value;
-  const cursor = event.target.selectionStart;
-  render();
-  const search = document.querySelector("[data-role=search]");
-  if (search) { search.focus(); search.setSelectionRange(cursor, cursor); }
+  pendingSearchSelection = {
+    start: event.target.selectionStart ?? state.query.length,
+    end: event.target.selectionEnd ?? state.query.length,
+  };
+  scheduleRender();
 }
 
 async function boot() {
+  applyTheme();
   try {
     state.recipes = await listRecipes();
     render();
@@ -864,4 +1125,18 @@ app?.addEventListener("click", handleClick);
 app?.addEventListener("submit", handleSubmit);
 app?.addEventListener("change", handleChange);
 app?.addEventListener("input", handleInput);
+const systemThemeMedia = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+systemThemeMedia?.addEventListener?.("change", () => {
+  if (state.theme === "system") applyTheme();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !state.modal || state.busy) return;
+  state.modal = null;
+  state.importPreview = null;
+  state.editingId = null;
+  state.editingLogId = null;
+  state.editorMode = "manual";
+  state.urlPrefill = null;
+  render();
+});
 boot();
